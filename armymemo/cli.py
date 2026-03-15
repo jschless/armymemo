@@ -14,7 +14,7 @@ from .document import MemoDocument
 from .examples import example_basename, has_packaged_example, read_packaged_example
 from .parser import parse_file, parse_text
 from .renderers.typst import render_typst_source
-from .review import review_document
+from .review import review_document, review_rendered_document
 from .review_pack import generate_review_pack, list_review_packs
 
 
@@ -135,10 +135,7 @@ def _review(args: argparse.Namespace) -> int:
     document = _parse_document_input(args.input)
     pdf_source = args.pdf
     if pdf_source is None and args.render:
-        with tempfile.TemporaryDirectory(prefix="armymemo-review-") as temp_dir_name:
-            output_path = Path(temp_dir_name) / "review.pdf"
-            TypstCompiler().compile_source(render_typst_source(document), output_path)
-            report = review_document(document, pdf_source=output_path)
+        report = review_rendered_document(document)
     else:
         report = review_document(document, pdf_source=pdf_source)
 
