@@ -53,6 +53,15 @@ def test_typst_source_escapes_email_references():
     assert "michael.j.jones\\@army.mil" in source
 
 
+def test_typst_source_maps_bold_and_italic_markdown_to_distinct_typst_markup():
+    document = parse_file("resources/examples/tutorial.Amd")
+
+    source = render_typst_source(document)
+
+    assert "*this will be bold*" in source
+    assert "_this will be italicized_" in source
+
+
 def test_typst_source_uses_quarter_inch_continuation_indent_for_single_for_line():
     document = MemoDocument(
         unit_name="4th Engineer Battalion",
@@ -165,3 +174,31 @@ def test_typst_signature_gap_is_close_to_four_blank_lines(tmp_path):
     gap = signature_line.y_pos - last_body_line.y_pos
 
     assert 60 <= gap <= 72, gap
+
+
+@pytest.mark.integration
+def test_tutorial_keeps_final_paragraph_with_signature_block(tmp_path):
+    document = parse_file("resources/examples/tutorial.Amd")
+    pdf_path = tmp_path / "tutorial.pdf"
+
+    render_typst_pdf(document, pdf_path)
+
+    layout = extract_layout(pdf_path)
+    signature_name = next(
+        line for line in layout.lines if "SARAH M. JOHNSON" in line.text.upper()
+    )
+    signature_rank = next(
+        line for line in layout.lines if "CPT, MI" in line.text.upper()
+    )
+    signature_title = next(
+        line for line in layout.lines if "COMPANY COMMANDER" in line.text.upper()
+    )
+    point_of_contact_lines = [
+        line
+        for line in layout.lines
+        if "POINT OF CONTACT" in line.text.upper()
+        or "sarah.m.johnson@army.mil" in line.text
+    ]
+
+    assert signature_name.page == signature_rank.page == signature_title.page
+    assert any(line.page == signature_name.page for line in point_of_contact_lines)

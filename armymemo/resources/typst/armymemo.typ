@@ -14,18 +14,6 @@
   render_route_section(memo)
   block(width: 100%)[SUBJECT: #memo.subject]
   v(layout.spacing.after_subject_line)
-  render_nodes(memo.body)
-  if memo.authority != none {
-    block(width: 100%)[#memo.authority]
-  }
-  v(
-    if memo.authority != none {
-      layout.spacing.signature_gap_with_authority
-    } else {
-      layout.spacing.signature_gap_without_authority
-    }
-  )
-  render_signature_block(memo)
-  render_trailing_list([DISTRIBUTION:], memo.distros, top_gap: layout.spacing.distribution_gap)
-  render_trailing_list([CF:], memo.cfs, top_gap: layout.spacing.cf_gap)
+  render_nodes(memo.body, sticky_last: true)
+  render_closing_block(memo)
 }

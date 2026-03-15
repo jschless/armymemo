@@ -29,9 +29,31 @@
   ]
 }
 
-#let render_nodes(nodes) = {
+#let render_nodes(nodes, sticky_last: false) = {
   for (index, node) in nodes.enumerate() {
-    if node.kind == "table" {
+    let sticky = sticky_last and index == nodes.len() - 1
+    if sticky {
+      block(sticky: true)[
+        #if node.kind == "table" {
+          render_table_node(node)
+        } else {
+          par(
+            leading: layout.paragraph_leading,
+            first-line-indent: (amount: pt(node.first_line_indent_pt), all: true),
+          )[
+            #node.label#h(pt(node.label_gap_pt))#node.paragraphs.at(0)
+          ]
+          for paragraph in node.paragraphs.slice(1) {
+            v(layout.spacing.body_paragraph)
+            par(leading: layout.paragraph_leading)[#paragraph]
+          }
+          if node.children.len() > 0 {
+            v(layout.spacing.body_item)
+            render_nodes(node.children)
+          }
+        }
+      ]
+    } else if node.kind == "table" {
       render_table_node(node)
     } else {
       par(
