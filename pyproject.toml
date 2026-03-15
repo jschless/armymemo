@@ -50,6 +50,7 @@ exclude = ["tests*", "docs*", "resources*"]
 [tool.setuptools.package-data]
 armymemo = [
     "resources/*.png",
+    "resources/examples/*",
     "resources/typst/*",
     "resources/rules/*",
 ]

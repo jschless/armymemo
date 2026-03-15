@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 
-
 TRIPLE_STAR_RE = re.compile(r"\*\*\*(.+?)\*\*\*")
 DOUBLE_STAR_RE = re.compile(r"\*\*(.+?)\*\*")
 SINGLE_STAR_RE = re.compile(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)")

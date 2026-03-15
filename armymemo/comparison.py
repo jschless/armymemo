@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from io import BytesIO
 from itertools import zip_longest
 from pathlib import Path
-import re
 
 import pdfplumber
 
@@ -144,11 +144,7 @@ def compare_layouts(
 
 def extract_layout(source: str | Path | bytes) -> ExtractedLayout:
     layout = ExtractedLayout()
-    pdf_stream: BytesIO | str
-    if isinstance(source, bytes):
-        pdf_stream = BytesIO(source)
-    else:
-        pdf_stream = str(source)
+    pdf_stream: BytesIO | str = BytesIO(source) if isinstance(source, bytes) else str(source)
 
     with pdfplumber.open(pdf_stream) as pdf:
         for page_number, page in enumerate(pdf.pages):

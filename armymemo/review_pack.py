@@ -3,11 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .parser import parse_file
+from .examples import read_packaged_example
+from .parser import parse_text
 from .renderers.typst import render_typst_pdf
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-EXAMPLES_DIR = REPO_ROOT / "resources" / "examples"
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,11 +58,6 @@ def generate_review_pack(
     if pack_name not in REVIEW_PACKS:
         supported = ", ".join(list_review_packs())
         raise ValueError(f"Unknown review pack '{pack_name}'. Supported packs: {supported}")
-    if not EXAMPLES_DIR.exists():
-        raise FileNotFoundError(
-            f"Example fixture directory was not found at {EXAMPLES_DIR}. "
-            "Review packs are intended to be generated from a repo checkout."
-        )
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -77,14 +70,13 @@ def generate_review_pack(
     ]
 
     for item in REVIEW_PACKS[pack_name]:
-        source_path = EXAMPLES_DIR / item.example_file
         pdf_path = output_path / f"{item.slug}.pdf"
-        render_typst_pdf(parse_file(source_path), pdf_path)
+        render_typst_pdf(parse_text(read_packaged_example(item.example_file)), pdf_path)
         generated.append(pdf_path)
         manifest_lines.extend(
             [
                 f"- `{pdf_path.name}`",
-                f"  Source: `resources/examples/{item.example_file}`",
+                f"  Source: packaged example `{item.example_file}`",
                 f"  Purpose: {item.description}",
             ]
         )

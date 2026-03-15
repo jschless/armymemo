@@ -14,9 +14,7 @@
   render_route_section(memo)
   block(width: 100%)[SUBJECT: #memo.subject]
   v(layout.spacing.after_subject_line)
-  for node in memo.body {
-    render_node(node)
-  }
+  render_nodes(memo.body)
   if memo.authority != none {
     block(width: 100%)[#memo.authority]
   }

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
-from pathlib import Path
 import textwrap
+from dataclasses import dataclass
+from pathlib import Path
 
 from ..document import BodyItem, MemoDocument, Recipient, TableBlock
 from ..inline import render_typst_inline
-from ..rules import load_rulebook
+from ..rules import load_rulebook, load_typst_layout_rules
 
 RESOURCE_DIR = Path(__file__).resolve().parents[1] / "resources"
 TEMPLATE_DIR = RESOURCE_DIR / "typst"
@@ -112,7 +112,7 @@ def _body_nodes(nodes: list[BodyItem | TableBlock], depth: int = 0) -> list[dict
                     "kind": "item",
                     "label": _markup(_item_label(depth, item_number)),
                     "first_line_indent_pt": _indent_for_depth(depth),
-                    "continuation_indent_pt": _continuation_indent(depth),
+                    "label_gap_pt": _label_gap(),
                     "paragraphs": [_markup(paragraph) for paragraph in node.paragraphs],
                     "children": _body_nodes(node.children, depth + 1),
                 }
@@ -122,8 +122,16 @@ def _body_nodes(nodes: list[BodyItem | TableBlock], depth: int = 0) -> list[dict
 
 def _route_paragraphs(document: MemoDocument) -> list[dict[str, object]]:
     paragraphs: list[dict[str, object]] = []
+    route_layout = _route_layout()
     if not document.thru_recipients and not document.for_recipients:
-        return [_route_paragraph("MEMORANDUM FOR RECORD", continuation_indent_pt=0, wrap_width=78, paragraph_gap_pt=20)]
+        return [
+            _route_paragraph(
+                "MEMORANDUM FOR RECORD",
+                continuation_indent_pt=0,
+                wrap_width=int(route_layout["mfr_wrap_width_chars"]),
+                paragraph_gap_pt=int(route_layout["default_paragraph_gap_pt"]),
+            )
+        ]
 
     if document.thru_recipients:
         if len(document.thru_recipients) == 1:
@@ -131,21 +139,30 @@ def _route_paragraphs(document: MemoDocument) -> list[dict[str, object]]:
                 _route_paragraph(
                     f"MEMORANDUM THRU {_recipient_line(document.thru_recipients[0])}",
                     continuation_indent_pt=0,
-                    wrap_width=72,
-                    paragraph_gap_pt=20,
+                    wrap_width=int(route_layout["thru_wrap_width_chars"]),
+                    paragraph_gap_pt=int(route_layout["default_paragraph_gap_pt"]),
                 )
             )
         else:
             paragraphs.append(
-                _route_paragraph("MEMORANDUM THRU", continuation_indent_pt=0, wrap_width=72, paragraph_gap_pt=20)
+                _route_paragraph(
+                    "MEMORANDUM THRU",
+                    continuation_indent_pt=0,
+                    wrap_width=int(route_layout["thru_wrap_width_chars"]),
+                    paragraph_gap_pt=int(route_layout["default_paragraph_gap_pt"]),
+                )
             )
             for index, recipient in enumerate(document.thru_recipients):
-                gap = 20 if index == len(document.thru_recipients) - 1 and document.for_recipients else 6
+                gap = (
+                    int(route_layout["default_paragraph_gap_pt"])
+                    if index == len(document.thru_recipients) - 1 and document.for_recipients
+                    else int(route_layout["stacked_recipient_gap_pt"])
+                )
                 paragraphs.append(
                     _route_paragraph(
                         _recipient_line(recipient),
-                        continuation_indent_pt=18,
-                        wrap_width=78,
+                        continuation_indent_pt=int(route_layout["hanging_indent_pt"]),
+                        wrap_width=int(route_layout["recipient_wrap_width_chars"]),
                         paragraph_gap_pt=gap,
                     )
                 )
@@ -156,8 +173,8 @@ def _route_paragraphs(document: MemoDocument) -> list[dict[str, object]]:
                 _route_paragraph(
                     f"FOR {_recipient_line(document.for_recipients[0])}",
                     continuation_indent_pt=0,
-                    wrap_width=78,
-                    paragraph_gap_pt=20,
+                    wrap_width=int(route_layout["recipient_wrap_width_chars"]),
+                    paragraph_gap_pt=int(route_layout["default_paragraph_gap_pt"]),
                 )
             )
             return paragraphs
@@ -166,9 +183,9 @@ def _route_paragraphs(document: MemoDocument) -> list[dict[str, object]]:
             paragraphs.append(
                 _route_paragraph(
                     f"MEMORANDUM FOR {_recipient_line(document.for_recipients[0])}",
-                    continuation_indent_pt=18,
-                    wrap_width=74,
-                    paragraph_gap_pt=20,
+                    continuation_indent_pt=int(route_layout["hanging_indent_pt"]),
+                    wrap_width=int(route_layout["single_for_wrap_width_chars"]),
+                    paragraph_gap_pt=int(route_layout["default_paragraph_gap_pt"]),
                 )
             )
             return paragraphs
@@ -177,17 +194,21 @@ def _route_paragraphs(document: MemoDocument) -> list[dict[str, object]]:
             _route_paragraph(
                 "FOR" if document.thru_recipients else "MEMORANDUM FOR",
                 continuation_indent_pt=0,
-                wrap_width=78,
-                paragraph_gap_pt=20,
+                wrap_width=int(route_layout["recipient_wrap_width_chars"]),
+                paragraph_gap_pt=int(route_layout["default_paragraph_gap_pt"]),
             )
         )
         for index, recipient in enumerate(document.for_recipients):
             paragraphs.append(
                 _route_paragraph(
                     _recipient_line(recipient),
-                    continuation_indent_pt=18,
-                    wrap_width=78,
-                    paragraph_gap_pt=20 if index == len(document.for_recipients) - 1 else 6,
+                    continuation_indent_pt=int(route_layout["hanging_indent_pt"]),
+                    wrap_width=int(route_layout["recipient_wrap_width_chars"]),
+                    paragraph_gap_pt=(
+                        int(route_layout["default_paragraph_gap_pt"])
+                        if index == len(document.for_recipients) - 1
+                        else int(route_layout["stacked_recipient_gap_pt"])
+                    ),
                 )
             )
     return paragraphs
@@ -224,23 +245,17 @@ def _item_label(depth: int, index: int) -> str:
 
 
 def _indent_for_depth(depth: int) -> int:
-    mapping = {
-        0: 0,
-        1: 20,
-        2: 38,
-        3: 38,
-    }
-    return mapping.get(depth, 56)
+    body_layout = load_typst_layout_rules()["body"]
+    level = min(depth + 1, 4)
+    return int(body_layout[f"level_{level}_first_line_indent_pt"])
 
 
-def _continuation_indent(depth: int) -> int:
-    mapping = {
-        0: 18,
-        1: 38,
-        2: 56,
-        3: 56,
-    }
-    return mapping.get(depth, 74)
+def _label_gap() -> int:
+    return int(load_typst_layout_rules()["body"]["label_gap_pt"])
+
+
+def _route_layout() -> dict[str, object]:
+    return load_typst_layout_rules()["route"]
 
 
 def _recipient_line(recipient: Recipient) -> str:

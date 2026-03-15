@@ -14,3 +14,4 @@ def test_generate_review_pack_writes_manifest_and_five_pdfs(tmp_path):
     manifest = (tmp_path / "README.md").read_text(encoding="utf-8")
     assert "01-basic_mfr.pdf" in manifest
     assert "05-long_memo.pdf" in manifest
+    assert "packaged example `basic_mfr.Amd`" in manifest

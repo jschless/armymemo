@@ -52,7 +52,8 @@ That means:
 - Double-space between paragraphs and subparagraphs.
 - Do not number a one-paragraph memorandum.
 - For multi-paragraph memorandums, use the hierarchy `1.`, `a.`, `(1)`, `(a)`.
-- Use fixed indentation by paragraph level rather than ad hoc wrapping.
+- Use fixed first-line indentation by paragraph level rather than ad hoc wrapping.
+- Wrapped body lines return to the left margin instead of hanging under the paragraph label.
 
 ### Closing
 
@@ -82,6 +83,10 @@ The current Typst renderer reads layout constants from the rulebook and maps the
 Important current values:
 
 - left and right margins: `72pt`
+- first-page letterhead top line: `36pt`
+- `DEPARTMENT OF THE ARMY`: `10pt` Arial bold
+- remaining letterhead lines: `8pt` Arial bold
+- letterhead inter-line gap: `2pt`
 - office-symbol line top on first page: `132pt`
 - continuation-page office symbol top: `72pt`
 - continuation-page subject top: `88pt`

@@ -1,7 +1,7 @@
 from armymemo.document import BodyItem, MemoDocument, Recipient
 from armymemo.parser import parse_file
 from armymemo.renderers.typst import render_typst_pdf
-from armymemo.review import review_document
+from armymemo.review import ReviewFinding, ReviewReport, review_document
 
 
 def test_review_document_flags_missing_subject():
@@ -22,6 +22,21 @@ def test_review_document_flags_missing_subject():
 
     assert findings["document.subject.present"].status == "fail"
     assert findings["document.body.present"].status == "fail"
+
+
+def test_review_report_fails_on_warning_findings():
+    report = ReviewReport(
+        findings=[
+            ReviewFinding(
+                rule_id="memo.heading.letterhead",
+                severity="warning",
+                status="fail",
+                message="Letterhead geometry mismatch.",
+            )
+        ]
+    )
+
+    assert report.passed is False
 
 
 def test_review_document_passes_first_page_geometry_for_basic_mfr(tmp_path):

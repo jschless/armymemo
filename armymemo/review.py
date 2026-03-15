@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-import re
-from typing import Callable
 
 from .comparison import ExtractedLayout, ExtractedLine, PageGeometry, extract_layout
 from .document import MemoDocument
@@ -75,7 +75,7 @@ class ReviewReport:
     @property
     def passed(self) -> bool:
         return not any(
-            finding.status == "fail" and finding.severity == "error"
+            finding.status == "fail" and finding.severity != "info"
             for finding in self.findings
         )
 
@@ -269,17 +269,12 @@ def _letterhead_geometry_rule(features: ReviewFeatures) -> ReviewFinding:
     if isinstance(first_page, ReviewFinding):
         return first_page
 
+    line_tops = _letterhead_line_tops(features)
     expected_lines = [
-        ("DEPARTMENT OF THE ARMY", _letterhead_top(features)),
-        (features.document.unit_name, _letterhead_top(features) + _letterhead_step(features)),
-        (
-            features.document.unit_street_address,
-            _letterhead_top(features) + (_letterhead_step(features) * 2),
-        ),
-        (
-            features.document.unit_city_state_zip,
-            _letterhead_top(features) + (_letterhead_step(features) * 3),
-        ),
+        ("DEPARTMENT OF THE ARMY", line_tops[0]),
+        (features.document.unit_name, line_tops[1]),
+        (features.document.unit_street_address, line_tops[2]),
+        (features.document.unit_city_state_zip, line_tops[3]),
     ]
     mismatches: list[dict[str, object]] = []
     for text, expected_y in expected_lines:
@@ -853,8 +848,18 @@ def _letterhead_top(features: ReviewFeatures) -> float:
     return float(features.layout_rules["letterhead"]["header_top_pt"])
 
 
-def _letterhead_step(features: ReviewFeatures) -> float:
-    return float(features.layout_rules["letterhead"]["header_line_step_pt"])
+def _letterhead_line_tops(features: ReviewFeatures) -> tuple[float, float, float, float]:
+    top = _letterhead_top(features)
+    department_size = float(features.layout_rules["letterhead"]["department_font_size_pt"])
+    detail_size = float(features.layout_rules["letterhead"]["detail_font_size_pt"])
+    gap = float(features.layout_rules["letterhead"]["header_line_gap_pt"])
+    detail_top = top + department_size + gap
+    return (
+        top,
+        detail_top,
+        detail_top + detail_size + gap,
+        detail_top + ((detail_size + gap) * 2),
+    )
 
 
 def _normalize_text(text: str) -> str:

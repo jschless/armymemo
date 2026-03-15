@@ -1,29 +1,19 @@
 """Standalone Army memo library with Typst rendering and review tools."""
 
-from .benchmarking import BenchmarkReport, CaseBenchmark, EngineBenchmark, benchmark_renderers
-from .comparison import (
-    ComparisonResult,
-    ComparisonTolerance,
-    ExtractedLayout,
-    ExtractedLine,
-    compare_layouts,
-    compare_pdfs,
+from .benchmarking import (
+    BenchmarkReport,
+    CaseBenchmark,
+    EngineBenchmark,
+    benchmark_renderers,
 )
+from .comparison import ComparisonResult, ComparisonTolerance, compare_pdfs
 from .compiler import TypstBinaryManager, TypstCompiler
 from .corpus import CorpusCase, generate_corpus
 from .document import BodyItem, MemoDocument, Recipient, TableBlock
 from .parser import parse_file, parse_text
-from .review_pack import ReviewPackItem, generate_review_pack, list_review_packs
-from .rules import load_rule_inventory, load_rulebook, load_typst_layout_rules
-from .review import (
-    ReviewFeatures,
-    ReviewFinding,
-    ReviewReport,
-    default_review_rules,
-    extract_review_features,
-    review_document,
-)
 from .renderers.typst import render_typst_pdf, render_typst_source
+from .review import ReviewFinding, ReviewReport, review_document
+from .review_pack import generate_review_pack, list_review_packs
 
 __all__ = [
     "BenchmarkReport",
@@ -33,28 +23,18 @@ __all__ = [
     "ComparisonTolerance",
     "CorpusCase",
     "EngineBenchmark",
-    "ExtractedLayout",
-    "ExtractedLine",
     "MemoDocument",
     "Recipient",
-    "ReviewFeatures",
     "ReviewFinding",
-    "ReviewPackItem",
     "ReviewReport",
     "TableBlock",
     "TypstBinaryManager",
     "TypstCompiler",
     "benchmark_renderers",
-    "compare_layouts",
     "compare_pdfs",
-    "default_review_rules",
-    "extract_review_features",
-    "generate_review_pack",
     "generate_corpus",
+    "generate_review_pack",
     "list_review_packs",
-    "load_rule_inventory",
-    "load_rulebook",
-    "load_typst_layout_rules",
     "parse_file",
     "parse_text",
     "render_typst_pdf",

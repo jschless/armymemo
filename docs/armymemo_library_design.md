@@ -5,6 +5,7 @@
 - Historical extraction design
 - Retained to document major decisions behind the standalone repo split
 - The standalone `armymemo` package now lives in this repo, and Typst is the only shipped renderer
+- This document is not the authoritative 1.0 API contract; the current README and package exports are
 
 ## Summary
 

@@ -2,18 +2,20 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import sys
 import tempfile
+from pathlib import Path
 
 from .benchmarking import benchmark_renderers
 from .comparison import compare_pdfs
 from .compiler import TypstCompiler
 from .corpus import generate_corpus
-from .parser import parse_file
-from .review_pack import generate_review_pack, list_review_packs
-from .review import review_document
+from .document import MemoDocument
+from .examples import example_basename, has_packaged_example, read_packaged_example
+from .parser import parse_file, parse_text
 from .renderers.typst import render_typst_source
+from .review import review_document
+from .review_pack import generate_review_pack, list_review_packs
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -87,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _render(args: argparse.Namespace) -> int:
-    document = parse_file(args.input)
+    document = _parse_document_input(args.input)
     output_path = Path(args.output)
     source = render_typst_source(document)
     if args.source_only:
@@ -130,7 +132,7 @@ def _review_pack(args: argparse.Namespace) -> int:
 
 
 def _review(args: argparse.Namespace) -> int:
-    document = parse_file(args.input)
+    document = _parse_document_input(args.input)
     pdf_source = args.pdf
     if pdf_source is None and args.render:
         with tempfile.TemporaryDirectory(prefix="armymemo-review-") as temp_dir_name:
@@ -150,7 +152,9 @@ def _review(args: argparse.Namespace) -> int:
 
 
 def _benchmark(args: argparse.Namespace) -> int:
-    report = benchmark_renderers(args.inputs, iterations=args.iterations)
+    with tempfile.TemporaryDirectory(prefix="armymemo-benchmark-inputs-") as temp_dir_name:
+        resolved_inputs = _resolve_benchmark_inputs(args.inputs, Path(temp_dir_name))
+        report = benchmark_renderers(resolved_inputs, iterations=args.iterations)
     if args.json:
         print(json.dumps(report.to_dict(), indent=2))
         return 0
@@ -168,6 +172,39 @@ def _benchmark(args: argparse.Namespace) -> int:
                 f"total={engine.total_seconds:.4f}s"
             )
     return 0
+
+
+def _parse_document_input(input_value: str) -> MemoDocument:
+    path = Path(input_value)
+    if path.exists():
+        return parse_file(path)
+
+    example_name = example_basename(input_value)
+    if has_packaged_example(example_name):
+        return parse_text(read_packaged_example(example_name))
+
+    raise FileNotFoundError(
+        f"Input file '{input_value}' was not found and no packaged example named '{example_name}' exists."
+    )
+
+
+def _resolve_benchmark_inputs(inputs: list[str], temp_dir: Path) -> list[Path]:
+    resolved: list[Path] = []
+    for input_value in inputs:
+        path = Path(input_value)
+        if path.exists():
+            resolved.append(path)
+            continue
+
+        example_name = example_basename(input_value)
+        if not has_packaged_example(example_name):
+            raise FileNotFoundError(
+                f"Benchmark input '{input_value}' was not found and no packaged example named '{example_name}' exists."
+            )
+        target = temp_dir / example_name
+        target.write_text(read_packaged_example(example_name), encoding="utf-8")
+        resolved.append(target)
+    return resolved
 
 
 if __name__ == "__main__":

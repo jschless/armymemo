@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 import os
 import platform
 import shutil
@@ -9,9 +8,12 @@ import subprocess
 import tarfile
 import tempfile
 import urllib.request
+from pathlib import Path
 
 from .exceptions import TypstCompileError, TypstNotFoundError
 from .renderers.typst import RESOURCE_DIR as TYPST_RESOURCE_DIR
+
+DEFAULT_TYPST_VERSION = "0.14.2"
 
 
 class TypstBinaryManager:
@@ -23,7 +25,7 @@ class TypstBinaryManager:
         version: str | None = None,
         cache_dir: str | Path | None = None,
     ) -> None:
-        self.version = version or os.environ.get("ARMYMEMO_TYPST_VERSION", "0.12.0")
+        self.version = version or os.environ.get("ARMYMEMO_TYPST_VERSION", DEFAULT_TYPST_VERSION)
         self.cache_dir = Path(cache_dir or Path.home() / ".cache" / "armymemo" / "typst")
 
     def resolve_binary(self, *, auto_install: bool = True) -> Path:
@@ -59,11 +61,11 @@ class TypstBinaryManager:
 
         with tempfile.TemporaryDirectory(prefix="armymemo-typst-download-") as temp_dir_name:
             archive_path = Path(temp_dir_name) / "typst.tar.xz"
-            urllib.request.urlretrieve(url, archive_path)  # noqa: S310
+            urllib.request.urlretrieve(url, archive_path)
             with tarfile.open(archive_path, mode="r:xz") as archive:
-                archive.extractall(install_dir)  # noqa: S202
+                self._extract_archive_safely(archive, install_dir)
 
-        binary = next(install_dir.rglob("typst"), None)
+        binary = self._find_installed_binary(install_dir, target)
         if binary is None:
             raise TypstNotFoundError(f"Downloaded Typst archive did not contain a binary: {url}")
         binary.chmod(binary.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
@@ -75,7 +77,9 @@ class TypstBinaryManager:
         direct_binary = install_dir / "typst"
         if direct_binary.exists():
             return direct_binary
-        nested_binary = next(install_dir.rglob("typst"), direct_binary)
+        nested_binary = self._find_installed_binary(install_dir, target)
+        if nested_binary is None:
+            return direct_binary
         return nested_binary
 
     def _target_triple(self) -> str:
@@ -94,6 +98,26 @@ class TypstBinaryManager:
         raise TypstNotFoundError(
             f"Auto-install is only supported on macOS and Linux; found {system} {machine}"
         )
+
+    def _extract_archive_safely(self, archive: tarfile.TarFile, install_dir: Path) -> None:
+        install_root = install_dir.resolve()
+        for member in archive.getmembers():
+            if member.issym() or member.islnk():
+                raise TypstNotFoundError("Refusing to extract Typst archive containing links")
+            member_path = (install_root / member.name).resolve()
+            if install_root != member_path and install_root not in member_path.parents:
+                raise TypstNotFoundError("Refusing to extract Typst archive outside the install directory")
+        archive.extractall(install_root)
+
+    def _find_installed_binary(self, install_dir: Path, target: str) -> Path | None:
+        expected_binary = install_dir / f"typst-{target}" / "typst"
+        if expected_binary.exists():
+            return expected_binary
+
+        for candidate in install_dir.rglob("typst"):
+            if install_dir.resolve() in candidate.resolve().parents:
+                return candidate
+        return None
 
 
 class TypstCompiler:
@@ -127,22 +151,24 @@ class TypstCompiler:
         source_path: str | Path,
         output_path: str | Path,
         *,
+        root_dir: str | Path | None = None,
         auto_install: bool = True,
         timeout: int = 90,
     ) -> Path:
         binary = self.binary_manager.resolve_binary(auto_install=auto_install)
         source_path = Path(source_path).resolve()
         output_path = Path(output_path).resolve()
+        root_path = Path(root_dir).resolve() if root_dir is not None else source_path.parent.resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
         command = [
             str(binary),
             "compile",
             "--root",
-            str(source_path.anchor),
+            str(root_path),
             str(source_path),
             str(output_path),
         ]
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(
             command,
             cwd=source_path.parent,
             text=True,

@@ -51,7 +51,9 @@ layout_typst:
     logo_height_pt: 72
     header_dx_pt: 4
     header_top_pt: 36
-    header_line_step_pt: 10
+    department_font_size_pt: 10
+    detail_font_size_pt: 8
+    header_line_gap_pt: 2
     suspense_dx_pt: 72
     suspense_dy_pt: 104
   heading:
@@ -67,13 +69,18 @@ layout_typst:
     hanging_indent_pt: 18
     default_paragraph_gap_pt: 20
     stacked_recipient_gap_pt: 6
+    mfr_wrap_width_chars: 78
+    thru_wrap_width_chars: 72
+    recipient_wrap_width_chars: 78
+    single_for_wrap_width_chars: 74
   body:
     item_gap_pt: 20
     paragraph_gap_pt: 12
-    level_1_first_line_indent_pt: 0
-    level_2_first_line_indent_pt: 20
-    level_3_first_line_indent_pt: 38
-    level_4_first_line_indent_pt: 38
+    label_gap_pt: 4
+    level_1_first_line_indent_pt: 16
+    level_2_first_line_indent_pt: 36
+    level_3_first_line_indent_pt: 54
+    level_4_first_line_indent_pt: 54
   closing:
     authority_gap_from_body_pt: 12
     signature_gap_without_authority_pt: 58
