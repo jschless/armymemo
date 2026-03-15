@@ -5,20 +5,29 @@ from pathlib import Path
 import re
 from typing import Callable
 
-from .comparison import ExtractedLayout, extract_layout
+from .comparison import ExtractedLayout, ExtractedLine, PageGeometry, extract_layout
 from .document import MemoDocument
+from .rules import load_typst_layout_rules
 
 SEVERITIES = ("error", "warning", "info")
 STATUSES = ("pass", "fail", "skip")
+POSITION_TOLERANCE_PT = 4.0
+RIGHT_MARGIN_TOLERANCE_PT = 6.0
+CENTER_TOLERANCE_PT = 16.0
+BOTTOM_REGION_PT = 90.0
 
 
 @dataclass(slots=True)
 class RenderedPageReview:
     page_number: int
+    geometry: PageGeometry
+    line_objects: list[ExtractedLine]
     lines: list[str]
     normalized_lines: list[str]
+    top_line_objects: list[ExtractedLine]
     top_lines: list[str]
     normalized_top_lines: list[str]
+    bottom_line_objects: list[ExtractedLine]
     bottom_lines: list[str]
     normalized_bottom_lines: list[str]
 
@@ -28,6 +37,7 @@ class ReviewFeatures:
     document: MemoDocument
     page_count: int | None = None
     pages: list[RenderedPageReview] = field(default_factory=list)
+    layout_rules: dict[str, object] = field(default_factory=load_typst_layout_rules)
 
 
 @dataclass(slots=True)
@@ -126,30 +136,46 @@ def default_review_rules() -> list[ReviewRule]:
         _body_present_rule,
         _signature_complete_rule,
         _routing_rule,
-        _first_page_header_rule,
-        _continuation_header_rule,
+        _letterhead_geometry_rule,
+        _office_symbol_position_rule,
+        _date_alignment_rule,
+        _suspense_alignment_rule,
+        _rendered_subject_rule,
+        _single_recipient_route_indent_rule,
+        _authority_line_rule,
+        _signature_block_rule,
+        _distribution_order_rule,
+        _cf_order_rule,
+        _continuation_heading_rule,
         _continuation_page_number_rule,
     ]
 
 
 def _pages_from_layout(layout: ExtractedLayout) -> list[RenderedPageReview]:
-    grouped: dict[int, list[str]] = {page.page: [] for page in layout.pages}
+    grouped: dict[int, list[ExtractedLine]] = {page.page: [] for page in layout.pages}
+    geometry_by_page = {page.page: page for page in layout.pages}
     for line in layout.lines:
-        grouped.setdefault(line.page, []).append(line.text)
+        grouped.setdefault(line.page, []).append(line)
 
     pages: list[RenderedPageReview] = []
     for page_number in sorted(grouped):
-        lines = grouped[page_number]
+        line_objects = grouped[page_number]
+        lines = [line.text for line in line_objects]
         normalized = [_normalize_text(line) for line in lines]
+        geometry = geometry_by_page[page_number]
         pages.append(
             RenderedPageReview(
                 page_number=page_number + 1,
+                geometry=geometry,
+                line_objects=line_objects,
                 lines=lines,
                 normalized_lines=normalized,
-                top_lines=lines[:6],
-                normalized_top_lines=normalized[:6],
-                bottom_lines=lines[-6:],
-                normalized_bottom_lines=normalized[-6:],
+                top_line_objects=line_objects[:8],
+                top_lines=lines[:8],
+                normalized_top_lines=normalized[:8],
+                bottom_line_objects=line_objects[-8:],
+                bottom_lines=lines[-8:],
+                normalized_bottom_lines=normalized[-8:],
             )
         )
     return pages
@@ -238,116 +264,597 @@ def _routing_rule(features: ReviewFeatures) -> ReviewFinding:
     )
 
 
-def _first_page_header_rule(features: ReviewFeatures) -> ReviewFinding:
-    if not features.pages:
-        return ReviewFinding(
-            rule_id="pdf.first_page_header.present",
-            severity="warning",
-            status="skip",
-            message="PDF-derived checks were skipped because no PDF was provided.",
-        )
+def _letterhead_geometry_rule(features: ReviewFeatures) -> ReviewFinding:
+    first_page = _first_page(features, "memo.heading.letterhead")
+    if isinstance(first_page, ReviewFinding):
+        return first_page
 
-    page = features.pages[0]
-    office_symbol = _normalize_text(features.document.office_symbol)
-    subject = _normalize_text(f"SUBJECT: {features.document.subject}")
-    top_area = page.normalized_lines[:10]
-    missing: list[str] = []
-    if not any(office_symbol in line for line in top_area):
-        missing.append("office_symbol")
-    if not any(subject in line for line in page.normalized_lines):
-        missing.append("subject")
-    if not missing:
+    expected_lines = [
+        ("DEPARTMENT OF THE ARMY", _letterhead_top(features)),
+        (features.document.unit_name, _letterhead_top(features) + _letterhead_step(features)),
+        (
+            features.document.unit_street_address,
+            _letterhead_top(features) + (_letterhead_step(features) * 2),
+        ),
+        (
+            features.document.unit_city_state_zip,
+            _letterhead_top(features) + (_letterhead_step(features) * 3),
+        ),
+    ]
+    mismatches: list[dict[str, object]] = []
+    for text, expected_y in expected_lines:
+        line = _find_line(first_page, text)
+        if line is None:
+            mismatches.append({"text": text, "expected_y": expected_y, "actual": None})
+            continue
+        if abs(line.y_pos - expected_y) > POSITION_TOLERANCE_PT:
+            mismatches.append(
+                {
+                    "text": text,
+                    "expected_y": expected_y,
+                    "actual_y": line.y_pos,
+                }
+            )
+
+    if not mismatches:
         return ReviewFinding(
-            rule_id="pdf.first_page_header.present",
+            rule_id="memo.heading.letterhead",
             severity="warning",
             status="pass",
-            message="First-page office symbol and subject are present in the rendered PDF.",
+            message="Letterhead lines match the configured first-page geometry.",
         )
     return ReviewFinding(
-        rule_id="pdf.first_page_header.present",
+        rule_id="memo.heading.letterhead",
         severity="warning",
         status="fail",
-        message="First-page header information is missing from the rendered PDF.",
-        evidence={"missing": missing, "page": 1},
+        message="Letterhead lines do not match the configured first-page geometry.",
+        evidence={"mismatches": mismatches},
     )
 
 
-def _continuation_header_rule(features: ReviewFeatures) -> ReviewFinding:
+def _office_symbol_position_rule(features: ReviewFeatures) -> ReviewFinding:
+    first_page = _first_page(features, "memo.heading.office_symbol")
+    if isinstance(first_page, ReviewFinding):
+        return first_page
+
+    line = _find_line(first_page, features.document.office_symbol)
+    if line is None:
+        return ReviewFinding(
+            rule_id="memo.heading.office_symbol",
+            severity="error",
+            status="fail",
+            message="Office symbol line is missing from the rendered first page.",
+        )
+
+    expected_y = float(features.layout_rules["heading"]["office_symbol_line_top_pt"])
+    expected_x = _left_margin(features)
+    passed = (
+        abs(line.y_pos - expected_y) <= POSITION_TOLERANCE_PT
+        and abs(line.x_start - expected_x) <= POSITION_TOLERANCE_PT
+    )
+    if passed:
+        return ReviewFinding(
+            rule_id="memo.heading.office_symbol",
+            severity="error",
+            status="pass",
+            message="Office symbol is positioned at the configured first-page origin.",
+        )
+    return ReviewFinding(
+        rule_id="memo.heading.office_symbol",
+        severity="error",
+        status="fail",
+        message="Office symbol is not at the configured first-page origin.",
+        evidence={"expected_x": expected_x, "expected_y": expected_y, "actual": _line_geometry(line)},
+    )
+
+
+def _date_alignment_rule(features: ReviewFeatures) -> ReviewFinding:
+    if not features.document.todays_date:
+        return ReviewFinding(
+            rule_id="memo.heading.date",
+            severity="info",
+            status="skip",
+            message="Date alignment check was skipped because the memo has no date.",
+        )
+
+    first_page = _first_page(features, "memo.heading.date")
+    if isinstance(first_page, ReviewFinding):
+        return first_page
+
+    line = _find_line(first_page, features.document.todays_date)
+    if line is None:
+        return ReviewFinding(
+            rule_id="memo.heading.date",
+            severity="error",
+            status="fail",
+            message="Date is missing from the rendered first page.",
+        )
+
+    expected_y = float(features.layout_rules["heading"]["office_symbol_line_top_pt"])
+    expected_right = _right_margin_target(features, first_page)
+    passed = (
+        abs(line.y_pos - expected_y) <= POSITION_TOLERANCE_PT
+        and abs(line.x_end - expected_right) <= RIGHT_MARGIN_TOLERANCE_PT
+    )
+    if passed:
+        return ReviewFinding(
+            rule_id="memo.heading.date",
+            severity="error",
+            status="pass",
+            message="Date is aligned with the office-symbol line and flush to the right margin.",
+        )
+    return ReviewFinding(
+        rule_id="memo.heading.date",
+        severity="error",
+        status="fail",
+        message="Date is not aligned with the configured office-symbol line and right margin.",
+        evidence={"expected_y": expected_y, "expected_right": expected_right, "actual": _line_geometry(line)},
+    )
+
+
+def _suspense_alignment_rule(features: ReviewFeatures) -> ReviewFinding:
+    if not features.document.suspense_date:
+        return ReviewFinding(
+            rule_id="memo.heading.suspense",
+            severity="info",
+            status="skip",
+            message="Suspense alignment check was skipped because the memo has no suspense date.",
+        )
+
+    first_page = _first_page(features, "memo.heading.suspense")
+    if isinstance(first_page, ReviewFinding):
+        return first_page
+
+    line = _find_line(first_page, f"S: {features.document.suspense_date}")
+    if line is None:
+        return ReviewFinding(
+            rule_id="memo.heading.suspense",
+            severity="error",
+            status="fail",
+            message="Suspense line is missing from the rendered first page.",
+        )
+
+    expected_y = float(features.layout_rules["letterhead"]["suspense_dy_pt"])
+    expected_right = _right_margin_target(features, first_page)
+    passed = (
+        abs(line.y_pos - expected_y) <= POSITION_TOLERANCE_PT
+        and abs(line.x_end - expected_right) <= RIGHT_MARGIN_TOLERANCE_PT
+    )
+    if passed:
+        return ReviewFinding(
+            rule_id="memo.heading.suspense",
+            severity="error",
+            status="pass",
+            message="Suspense line is placed at the configured first-page right margin.",
+        )
+    return ReviewFinding(
+        rule_id="memo.heading.suspense",
+        severity="error",
+        status="fail",
+        message="Suspense line is not at the configured first-page geometry.",
+        evidence={"expected_y": expected_y, "expected_right": expected_right, "actual": _line_geometry(line)},
+    )
+
+
+def _rendered_subject_rule(features: ReviewFeatures) -> ReviewFinding:
+    first_page = _first_page(features, "memo.heading.subject")
+    if isinstance(first_page, ReviewFinding):
+        return first_page
+
+    subject = _find_line(first_page, f"SUBJECT: {features.document.subject}")
+    if subject is not None:
+        return ReviewFinding(
+            rule_id="memo.heading.subject",
+            severity="error",
+            status="pass",
+            message="Subject line is present on the rendered first page.",
+        )
+    return ReviewFinding(
+        rule_id="memo.heading.subject",
+        severity="error",
+        status="fail",
+        message="Subject line is missing from the rendered first page.",
+    )
+
+
+def _single_recipient_route_indent_rule(features: ReviewFeatures) -> ReviewFinding:
+    document = features.document
+    if document.thru_recipients or len(document.for_recipients) != 1:
+        return ReviewFinding(
+            rule_id="memo.heading.route.single",
+            severity="info",
+            status="skip",
+            message="Single-recipient route indentation check did not apply to this memo.",
+        )
+
+    first_page = _first_page(features, "memo.heading.route.single")
+    if isinstance(first_page, ReviewFinding):
+        return first_page
+
+    subject_line = _find_line(first_page, f"SUBJECT: {document.subject}")
+    if subject_line is None:
+        return ReviewFinding(
+            rule_id="memo.heading.route.single",
+            severity="warning",
+            status="fail",
+            message="Could not locate the subject line while checking wrapped route indentation.",
+        )
+
+    route_lines = [
+        line
+        for line in first_page.line_objects
+        if 140 <= line.y_pos < subject_line.y_pos
+    ]
+    if len(route_lines) <= 1:
+        return ReviewFinding(
+            rule_id="memo.heading.route.single",
+            severity="info",
+            status="skip",
+            message="Single-recipient route indentation check was skipped because the route did not wrap.",
+        )
+
+    expected_x = _left_margin(features) + float(features.layout_rules["route"]["hanging_indent_pt"])
+    failures = [
+        _line_geometry(line)
+        for line in route_lines[1:]
+        if abs(line.x_start - expected_x) > POSITION_TOLERANCE_PT
+    ]
+    if not failures:
+        return ReviewFinding(
+            rule_id="memo.heading.route.single",
+            severity="error",
+            status="pass",
+            message="Wrapped single-recipient route lines use the configured hanging indent.",
+        )
+    return ReviewFinding(
+        rule_id="memo.heading.route.single",
+        severity="error",
+        status="fail",
+        message="Wrapped single-recipient route lines do not use the configured hanging indent.",
+        evidence={"expected_x": expected_x, "lines": failures},
+    )
+
+
+def _authority_line_rule(features: ReviewFeatures) -> ReviewFinding:
+    if not features.document.authority:
+        return ReviewFinding(
+            rule_id="memo.closing.authority",
+            severity="info",
+            status="skip",
+            message="Authority-line check was skipped because the memo has no authority line.",
+        )
+
+    last_page = _last_page(features, "memo.closing.authority")
+    if isinstance(last_page, ReviewFinding):
+        return last_page
+
+    authority = _find_line(last_page, _authority_text(features.document))
+    signature = _find_line(last_page, features.document.author_name.upper())
+    if authority is None:
+        return ReviewFinding(
+            rule_id="memo.closing.authority",
+            severity="error",
+            status="fail",
+            message="Authority line is missing from the rendered closing block.",
+        )
+    if signature is None:
+        return ReviewFinding(
+            rule_id="memo.closing.authority",
+            severity="warning",
+            status="fail",
+            message="Authority line was found, but the signature block was not detected.",
+            evidence={"authority": _line_geometry(authority)},
+        )
+    if authority.y_pos < signature.y_pos:
+        return ReviewFinding(
+            rule_id="memo.closing.authority",
+            severity="error",
+            status="pass",
+            message="Authority line is present before the signature block.",
+        )
+    return ReviewFinding(
+        rule_id="memo.closing.authority",
+        severity="error",
+        status="fail",
+        message="Authority line appears below the signature block.",
+        evidence={"authority": _line_geometry(authority), "signature": _line_geometry(signature)},
+    )
+
+
+def _signature_block_rule(features: ReviewFeatures) -> ReviewFinding:
+    last_page = _last_page(features, "memo.closing.signature")
+    if isinstance(last_page, ReviewFinding):
+        return last_page
+
+    expected_texts = [
+        features.document.author_name.upper(),
+        f"{features.document.author_rank}, {features.document.author_branch}",
+    ]
+    if features.document.author_title:
+        expected_texts.append(features.document.author_title)
+
+    missing = [text for text in expected_texts if _find_line(last_page, text) is None]
+    if not missing:
+        return ReviewFinding(
+            rule_id="memo.closing.signature",
+            severity="error",
+            status="pass",
+            message="Rendered signature block contains the expected signature lines.",
+        )
+    return ReviewFinding(
+        rule_id="memo.closing.signature",
+        severity="error",
+        status="fail",
+        message="Rendered signature block is missing expected signature lines.",
+        evidence={"missing": missing},
+    )
+
+
+def _distribution_order_rule(features: ReviewFeatures) -> ReviewFinding:
+    if not features.document.distros:
+        return ReviewFinding(
+            rule_id="memo.closing.distribution",
+            severity="info",
+            status="skip",
+            message="Distribution check was skipped because the memo has no distribution list.",
+        )
+
+    last_page = _last_page(features, "memo.closing.distribution")
+    if isinstance(last_page, ReviewFinding):
+        return last_page
+
+    distribution = _find_line(last_page, "DISTRIBUTION:")
+    signature = _find_line(last_page, features.document.author_name.upper())
+    cf = _find_line(last_page, "CF:")
+    missing = [value for value in features.document.distros if _find_line(last_page, value) is None]
+    if distribution is None or missing:
+        return ReviewFinding(
+            rule_id="memo.closing.distribution",
+            severity="error",
+            status="fail",
+            message="Distribution block is missing expected title or entries.",
+            evidence={"missing_entries": missing, "has_title": distribution is not None},
+        )
+    if signature is not None and distribution.y_pos <= signature.y_pos:
+        return ReviewFinding(
+            rule_id="memo.closing.distribution",
+            severity="error",
+            status="fail",
+            message="Distribution block appears above the signature block.",
+            evidence={"distribution": _line_geometry(distribution), "signature": _line_geometry(signature)},
+        )
+    if cf is not None and distribution.y_pos >= cf.y_pos:
+        return ReviewFinding(
+            rule_id="memo.closing.distribution",
+            severity="error",
+            status="fail",
+            message="Distribution block appears below the CF block.",
+            evidence={"distribution": _line_geometry(distribution), "cf": _line_geometry(cf)},
+        )
+    return ReviewFinding(
+        rule_id="memo.closing.distribution",
+        severity="error",
+        status="pass",
+        message="Distribution block is present after the signature block and before CF.",
+    )
+
+
+def _cf_order_rule(features: ReviewFeatures) -> ReviewFinding:
+    if not features.document.cfs:
+        return ReviewFinding(
+            rule_id="memo.closing.cf",
+            severity="info",
+            status="skip",
+            message="CF check was skipped because the memo has no CF block.",
+        )
+
+    last_page = _last_page(features, "memo.closing.cf")
+    if isinstance(last_page, ReviewFinding):
+        return last_page
+
+    cf = _find_line(last_page, "CF:")
+    distribution = _find_line(last_page, "DISTRIBUTION:")
+    missing = [value for value in features.document.cfs if _find_line(last_page, value) is None]
+    if cf is None or missing:
+        return ReviewFinding(
+            rule_id="memo.closing.cf",
+            severity="error",
+            status="fail",
+            message="CF block is missing expected title or entries.",
+            evidence={"missing_entries": missing, "has_title": cf is not None},
+        )
+    if distribution is not None and cf.y_pos <= distribution.y_pos:
+        return ReviewFinding(
+            rule_id="memo.closing.cf",
+            severity="error",
+            status="fail",
+            message="CF block appears above the distribution block.",
+            evidence={"distribution": _line_geometry(distribution), "cf": _line_geometry(cf)},
+        )
+    return ReviewFinding(
+        rule_id="memo.closing.cf",
+        severity="error",
+        status="pass",
+        message="CF block is present after the distribution block.",
+    )
+
+
+def _continuation_heading_rule(features: ReviewFeatures) -> ReviewFinding:
     if features.page_count is None:
         return ReviewFinding(
-            rule_id="pdf.continuation_header.present",
+            rule_id="memo.continuation.heading",
             severity="warning",
             status="skip",
-            message="Continuation-page header check was skipped because no PDF was provided.",
+            message="Continuation-heading check was skipped because no PDF was provided.",
         )
     if features.page_count <= 1:
         return ReviewFinding(
-            rule_id="pdf.continuation_header.present",
+            rule_id="memo.continuation.heading",
             severity="info",
             status="skip",
-            message="Continuation-page header check was skipped because the memo is one page.",
+            message="Continuation-heading check was skipped because the memo is one page.",
         )
 
-    office_symbol = _normalize_text(features.document.office_symbol)
-    subject = _normalize_text(f"SUBJECT: {features.document.subject}")
-    missing_pages: list[int] = []
+    expected_office_y = float(features.layout_rules["continuation"]["office_symbol_top_pt"])
+    expected_subject_y = float(features.layout_rules["continuation"]["subject_top_pt"])
+    expected_x = _left_margin(features)
+    failures: list[dict[str, object]] = []
     for page in features.pages[1:]:
-        has_office = any(office_symbol in line for line in page.normalized_top_lines)
-        has_subject = any(subject in line for line in page.normalized_top_lines)
-        if not (has_office and has_subject):
-            missing_pages.append(page.page_number)
+        office = _find_line(page, features.document.office_symbol)
+        subject = _find_line(page, f"SUBJECT: {features.document.subject}")
+        if office is None or subject is None:
+            failures.append(
+                {
+                    "page": page.page_number,
+                    "missing": [
+                        name
+                        for name, line in [("office_symbol", office), ("subject", subject)]
+                        if line is None
+                    ],
+                }
+            )
+            continue
+        if abs(office.y_pos - expected_office_y) > POSITION_TOLERANCE_PT or abs(office.x_start - expected_x) > POSITION_TOLERANCE_PT:
+            failures.append({"page": page.page_number, "line": "office_symbol", "actual": _line_geometry(office)})
+        if abs(subject.y_pos - expected_subject_y) > POSITION_TOLERANCE_PT or abs(subject.x_start - expected_x) > POSITION_TOLERANCE_PT:
+            failures.append({"page": page.page_number, "line": "subject", "actual": _line_geometry(subject)})
 
-    if not missing_pages:
+    if not failures:
         return ReviewFinding(
-            rule_id="pdf.continuation_header.present",
+            rule_id="memo.continuation.heading",
             severity="error",
             status="pass",
-            message="All continuation pages include the office symbol and subject header.",
+            message="All continuation pages include the configured office-symbol and subject geometry.",
         )
     return ReviewFinding(
-        rule_id="pdf.continuation_header.present",
+        rule_id="memo.continuation.heading",
         severity="error",
         status="fail",
-        message="One or more continuation pages are missing the expected header.",
-        evidence={"pages": missing_pages},
+        message="One or more continuation pages do not match the configured header geometry.",
+        evidence={"pages": failures},
     )
 
 
 def _continuation_page_number_rule(features: ReviewFeatures) -> ReviewFinding:
     if features.page_count is None:
         return ReviewFinding(
-            rule_id="pdf.continuation_page_number.present",
+            rule_id="memo.continuation.page_number",
             severity="warning",
             status="skip",
             message="Continuation-page number check was skipped because no PDF was provided.",
         )
     if features.page_count <= 1:
         return ReviewFinding(
-            rule_id="pdf.continuation_page_number.present",
+            rule_id="memo.continuation.page_number",
             severity="info",
             status="skip",
             message="Continuation-page number check was skipped because the memo is one page.",
         )
 
-    missing_pages = [
-        page.page_number
-        for page in features.pages[1:]
-        if str(page.page_number) not in page.normalized_bottom_lines
-    ]
-    if not missing_pages:
+    failures: list[dict[str, object]] = []
+    for page in features.pages[1:]:
+        page_number_line = _find_exact_line(page.bottom_line_objects, str(page.page_number))
+        if page_number_line is None:
+            failures.append({"page": page.page_number, "missing": "page_number"})
+            continue
+        center_delta = abs(page_number_line.x_center - (page.geometry.width / 2))
+        if center_delta > CENTER_TOLERANCE_PT or page_number_line.y_pos < (page.geometry.height - BOTTOM_REGION_PT):
+            failures.append(
+                {
+                    "page": page.page_number,
+                    "actual": _line_geometry(page_number_line),
+                    "center_delta": round(center_delta, 1),
+                }
+            )
+
+    if not failures:
         return ReviewFinding(
-            rule_id="pdf.continuation_page_number.present",
+            rule_id="memo.continuation.page_number",
             severity="error",
             status="pass",
-            message="All continuation pages include a page number.",
+            message="All continuation pages include a centered page number in the bottom region.",
         )
     return ReviewFinding(
-        rule_id="pdf.continuation_page_number.present",
+        rule_id="memo.continuation.page_number",
         severity="error",
         status="fail",
-        message="One or more continuation pages are missing a page number.",
-        evidence={"pages": missing_pages},
+        message="One or more continuation pages are missing or misplacing the page number.",
+        evidence={"pages": failures},
     )
+
+
+def _first_page(
+    features: ReviewFeatures,
+    rule_id: str,
+) -> RenderedPageReview | ReviewFinding:
+    if not features.pages:
+        return ReviewFinding(
+            rule_id=rule_id,
+            severity="warning",
+            status="skip",
+            message="PDF-derived checks were skipped because no PDF was provided.",
+        )
+    return features.pages[0]
+
+
+def _last_page(
+    features: ReviewFeatures,
+    rule_id: str,
+) -> RenderedPageReview | ReviewFinding:
+    if not features.pages:
+        return ReviewFinding(
+            rule_id=rule_id,
+            severity="warning",
+            status="skip",
+            message="PDF-derived checks were skipped because no PDF was provided.",
+        )
+    return features.pages[-1]
+
+
+def _find_line(page: RenderedPageReview, text: str) -> ExtractedLine | None:
+    normalized = _normalize_text(text)
+    for line in page.line_objects:
+        if normalized in _normalize_text(line.text):
+            return line
+    return None
+
+
+def _find_exact_line(lines: list[ExtractedLine], text: str) -> ExtractedLine | None:
+    normalized = _normalize_text(text)
+    for line in lines:
+        if _normalize_text(line.text) == normalized:
+            return line
+    return None
+
+
+def _line_geometry(line: ExtractedLine) -> dict[str, float]:
+    return {
+        "x_start": line.x_start,
+        "x_end": line.x_end,
+        "x_center": line.x_center,
+        "y_pos": line.y_pos,
+        "y_end": line.y_end,
+    }
+
+
+def _authority_text(document: MemoDocument) -> str:
+    return f"{document.authority.rstrip(':').upper()}:"
+
+
+def _left_margin(features: ReviewFeatures) -> float:
+    return float(features.layout_rules["page_margin"]["left"])
+
+
+def _right_margin_target(features: ReviewFeatures, page: RenderedPageReview) -> float:
+    return round(page.geometry.width - float(features.layout_rules["page_margin"]["right"]), 1)
+
+
+def _letterhead_top(features: ReviewFeatures) -> float:
+    return float(features.layout_rules["letterhead"]["header_top_pt"])
+
+
+def _letterhead_step(features: ReviewFeatures) -> float:
+    return float(features.layout_rules["letterhead"]["header_line_step_pt"])
 
 
 def _normalize_text(text: str) -> str:

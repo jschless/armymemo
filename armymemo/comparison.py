@@ -13,13 +13,21 @@ import pdfplumber
 class ExtractedLine:
     text: str
     x_start: float
+    x_end: float
     y_pos: float
+    y_end: float
     page: int
+
+    @property
+    def x_center(self) -> float:
+        return round((self.x_start + self.x_end) / 2, 1)
 
 
 @dataclass(slots=True)
 class PageGeometry:
     page: int
+    width: float
+    height: float
     x_min: float
     x_max: float
     y_min: float
@@ -166,6 +174,8 @@ def extract_layout(source: str | Path | bytes) -> ExtractedLayout:
                 layout.pages.append(
                     PageGeometry(
                         page=page_number,
+                        width=round(float(page.width), 1),
+                        height=round(float(page.height), 1),
                         x_min=round(min_x, 1),
                         x_max=round(max_x, 1),
                         y_min=round(min_y, 1),
@@ -180,7 +190,9 @@ def extract_layout(source: str | Path | bytes) -> ExtractedLayout:
                     ExtractedLine(
                         text=text,
                         x_start=round(float(line_chars[0].get("x0", 0)), 1),
+                        x_end=round(float(line_chars[-1].get("x1", 0)), 1),
                         y_pos=round(float(y_key), 1),
+                        y_end=round(max(float(char.get("bottom", 0)) for char in line_chars), 1),
                         page=page_number,
                     )
                 )

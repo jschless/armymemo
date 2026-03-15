@@ -38,8 +38,8 @@ def test_typst_long_memo_has_continuation_header_and_page_numbers(tmp_path):
     report = review_document(document, pdf_source=typst_pdf)
     findings = {finding.rule_id: finding for finding in report.findings}
 
-    assert findings["pdf.continuation_header.present"].passed, findings
-    assert findings["pdf.continuation_page_number.present"].passed, findings
+    assert findings["memo.continuation.heading"].passed, findings
+    assert findings["memo.continuation.page_number"].passed, findings
 
 
 def test_typst_source_escapes_email_references():
