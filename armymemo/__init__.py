@@ -12,7 +12,12 @@ from .corpus import CorpusCase, generate_corpus
 from .document import BodyItem, MemoDocument, Recipient, TableBlock
 from .parser import parse_file, parse_text
 from .renderers.typst import render_typst_pdf, render_typst_source
-from .review import ReviewFinding, ReviewReport, review_document
+from .review import (
+    ReviewFinding,
+    ReviewReport,
+    review_document,
+    review_rendered_document,
+)
 from .review_pack import generate_review_pack, list_review_packs
 
 __all__ = [
@@ -40,4 +45,5 @@ __all__ = [
     "render_typst_pdf",
     "render_typst_source",
     "review_document",
+    "review_rendered_document",
 ]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,6 +16,89 @@ POSITION_TOLERANCE_PT = 4.0
 RIGHT_MARGIN_TOLERANCE_PT = 6.0
 CENTER_TOLERANCE_PT = 16.0
 BOTTOM_REGION_PT = 90.0
+
+REVIEW_RULE_METADATA: dict[str, dict[str, str]] = {
+    "document.subject.present": {
+        "name": "Subject Present",
+        "ar_reference": "AR 25-50, para 2-4",
+        "suggested_fix": "Add a SUBJECT line before the memo body.",
+    },
+    "document.body.present": {
+        "name": "Body Present",
+        "ar_reference": "AR 25-50, para 2-4",
+        "suggested_fix": "Add at least one body paragraph to the memo.",
+    },
+    "document.signature.complete": {
+        "name": "Signature Block Complete",
+        "ar_reference": "AR 25-50, para 2-5",
+        "suggested_fix": "Provide the signer name, rank, and branch in the closing block.",
+    },
+    "document.routing.present": {
+        "name": "Routing Present",
+        "ar_reference": "AR 25-50, para 2-4",
+        "suggested_fix": "Provide the required FOR or THRU routing block for non-MFR memos.",
+    },
+    "memo.heading.letterhead": {
+        "name": "Letterhead Geometry",
+        "ar_reference": "AR 25-50, fig 2-1 / fig 2-2",
+        "suggested_fix": "Align the seal and letterhead lines to the configured first-page geometry.",
+    },
+    "memo.heading.office_symbol": {
+        "name": "Office Symbol Position",
+        "ar_reference": "AR 25-50, para 2-4",
+        "suggested_fix": "Place the office symbol on the configured first-page left margin line.",
+    },
+    "memo.heading.date": {
+        "name": "Date Alignment",
+        "ar_reference": "AR 25-50, para 2-4",
+        "suggested_fix": "Align the date with the office-symbol line and flush it to the right margin.",
+    },
+    "memo.heading.suspense": {
+        "name": "Suspense Alignment",
+        "ar_reference": "AR 25-50, para 2-4",
+        "suggested_fix": "Place the suspense line at the configured first-page right margin.",
+    },
+    "memo.heading.subject": {
+        "name": "Rendered Subject",
+        "ar_reference": "AR 25-50, para 2-4",
+        "suggested_fix": "Ensure the rendered first page contains the SUBJECT line.",
+    },
+    "memo.heading.route.single": {
+        "name": "Single FOR Wrap Indent",
+        "ar_reference": "AR 25-50, para 2-4",
+        "suggested_fix": "Indent wrapped single-recipient MEMORANDUM FOR lines by one quarter inch.",
+    },
+    "memo.closing.authority": {
+        "name": "Authority Line Order",
+        "ar_reference": "AR 25-50, para 2-5",
+        "suggested_fix": "Place the authority line before the signature block when authority is used.",
+    },
+    "memo.closing.signature": {
+        "name": "Signature Block Rendering",
+        "ar_reference": "AR 25-50, para 2-5",
+        "suggested_fix": "Render the complete signature block on the closing page.",
+    },
+    "memo.closing.distribution": {
+        "name": "Distribution Block Order",
+        "ar_reference": "AR 25-50, para 2-6",
+        "suggested_fix": "Place the distribution block after the signature block and before CF.",
+    },
+    "memo.closing.cf": {
+        "name": "CF Block Order",
+        "ar_reference": "AR 25-50, para 2-6",
+        "suggested_fix": "Place the CF block after the distribution block.",
+    },
+    "memo.continuation.heading": {
+        "name": "Continuation Header",
+        "ar_reference": "AR 25-50, para 2-4",
+        "suggested_fix": "Repeat the office symbol and subject at the configured continuation-page positions.",
+    },
+    "memo.continuation.page_number": {
+        "name": "Continuation Page Number",
+        "ar_reference": "AR 25-50, para 2-4",
+        "suggested_fix": "Center the continuation page number in the bottom region of each page after page one.",
+    },
+}
 
 
 @dataclass(slots=True)
@@ -47,6 +131,9 @@ class ReviewFinding:
     status: str
     message: str
     evidence: dict[str, object] = field(default_factory=dict)
+    name: str | None = None
+    ar_reference: str | None = None
+    suggested_fix: str | None = None
 
     def __post_init__(self) -> None:
         if self.severity not in SEVERITIES:
@@ -61,9 +148,13 @@ class ReviewFinding:
     def to_dict(self) -> dict[str, object]:
         return {
             "rule_id": self.rule_id,
+            "rule_name": self.name,
+            "name": self.name,
             "severity": self.severity,
             "status": self.status,
             "message": self.message,
+            "ar_reference": self.ar_reference,
+            "suggested_fix": self.suggested_fix,
             "evidence": self.evidence,
         }
 
@@ -91,12 +182,34 @@ class ReviewReport:
     def skipped_rules(self) -> int:
         return sum(1 for finding in self.findings if finding.status == "skip")
 
+    @property
+    def passing_rules(self) -> int:
+        return sum(1 for finding in self.findings if finding.status == "pass")
+
+    @property
+    def status_counts(self) -> dict[str, int]:
+        return {status: sum(1 for finding in self.findings if finding.status == status) for status in STATUSES}
+
+    @property
+    def failing_severity_counts(self) -> dict[str, int]:
+        return {
+            severity: sum(
+                1
+                for finding in self.findings
+                if finding.status == "fail" and finding.severity == severity
+            )
+            for severity in SEVERITIES
+        }
+
     def to_dict(self) -> dict[str, object]:
         return {
             "passed": self.passed,
             "executed_rules": self.executed_rules,
             "failed_rules": self.failed_rules,
             "skipped_rules": self.skipped_rules,
+            "passing_rules": self.passing_rules,
+            "status_counts": self.status_counts,
+            "failing_severity_counts": self.failing_severity_counts,
             "findings": [finding.to_dict() for finding in self.findings],
         }
 
@@ -127,7 +240,17 @@ def review_document(
 ) -> ReviewReport:
     features = extract_review_features(document, pdf_source=pdf_source)
     active_rules = rules or default_review_rules()
-    return ReviewReport(findings=[rule(features) for rule in active_rules])
+    findings = [_apply_rule_metadata(rule(features)) for rule in active_rules]
+    return ReviewReport(findings=findings)
+
+
+def review_rendered_document(document: MemoDocument) -> ReviewReport:
+    from .renderers.typst import render_typst_pdf
+
+    with tempfile.TemporaryDirectory(prefix="armymemo-rendered-review-") as temp_dir_name:
+        output_path = Path(temp_dir_name) / "review.pdf"
+        render_typst_pdf(document, output_path)
+        return review_document(document, pdf_source=output_path)
 
 
 def default_review_rules() -> list[ReviewRule]:
@@ -179,6 +302,19 @@ def _pages_from_layout(layout: ExtractedLayout) -> list[RenderedPageReview]:
             )
         )
     return pages
+
+
+def _apply_rule_metadata(finding: ReviewFinding) -> ReviewFinding:
+    metadata = REVIEW_RULE_METADATA.get(finding.rule_id)
+    if metadata is None:
+        return finding
+    if finding.name is None:
+        finding.name = metadata["name"]
+    if finding.ar_reference is None:
+        finding.ar_reference = metadata["ar_reference"]
+    if finding.suggested_fix is None:
+        finding.suggested_fix = metadata["suggested_fix"]
+    return finding
 
 
 def _subject_present_rule(features: ReviewFeatures) -> ReviewFinding:

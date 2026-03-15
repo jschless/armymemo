@@ -1,7 +1,12 @@
 from armymemo.document import BodyItem, MemoDocument, Recipient
 from armymemo.parser import parse_file
 from armymemo.renderers.typst import render_typst_pdf
-from armymemo.review import ReviewFinding, ReviewReport, review_document
+from armymemo.review import (
+    ReviewFinding,
+    ReviewReport,
+    review_document,
+    review_rendered_document,
+)
 
 
 def test_review_document_flags_missing_subject():
@@ -22,6 +27,9 @@ def test_review_document_flags_missing_subject():
 
     assert findings["document.subject.present"].status == "fail"
     assert findings["document.body.present"].status == "fail"
+    assert findings["document.subject.present"].name == "Subject Present"
+    assert findings["document.subject.present"].ar_reference == "AR 25-50, para 2-4"
+    assert findings["document.subject.present"].suggested_fix is not None
 
 
 def test_review_report_fails_on_warning_findings():
@@ -37,6 +45,7 @@ def test_review_report_fails_on_warning_findings():
     )
 
     assert report.passed is False
+    assert report.failing_severity_counts["warning"] == 1
 
 
 def test_review_document_passes_first_page_geometry_for_basic_mfr(tmp_path):
@@ -111,3 +120,16 @@ def test_review_document_enforces_single_for_wrap_indent(tmp_path):
     findings = {finding.rule_id: finding for finding in report.findings}
 
     assert findings["memo.heading.route.single"].status == "pass"
+
+
+def test_review_rendered_document_returns_structured_summary():
+    document = parse_file("resources/examples/basic_mfr.Amd")
+
+    report = review_rendered_document(document)
+    payload = report.to_dict()
+
+    assert payload["passed"] is True
+    assert payload["passing_rules"] > 0
+    assert payload["status_counts"]["pass"] > 0
+    assert payload["findings"][0]["name"] is not None
+    assert payload["findings"][0]["ar_reference"] is not None
