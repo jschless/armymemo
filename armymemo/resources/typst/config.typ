@@ -1,0 +1,43 @@
+#let page_margin = (
+  left: rulebook.layout_typst.page_margin.left * 1pt,
+  right: rulebook.layout_typst.page_margin.right * 1pt,
+  top: rulebook.layout_typst.page_margin.top * 1pt,
+  bottom: rulebook.layout_typst.page_margin.bottom * 1pt,
+)
+
+#let layout = (
+  page_margin: page_margin,
+  header_ascent: rulebook.layout_typst.header_ascent * 1pt,
+  footer_descent: rulebook.layout_typst.footer_descent * 1pt,
+  font_family: rulebook.layout_typst.font_family,
+  font_size: rulebook.layout_typst.font_size_pt * 1pt,
+  paragraph_leading: rulebook.layout_typst.paragraph_leading_pt * 1pt,
+  letterhead: (
+    logo_dx: rulebook.layout_typst.letterhead.logo_dx_pt * 1pt,
+    logo_dy: rulebook.layout_typst.letterhead.logo_dy_pt * 1pt,
+    logo_height: rulebook.layout_typst.letterhead.logo_height_pt * 1pt,
+    header_dx: rulebook.layout_typst.letterhead.header_dx_pt * 1pt,
+    header_top: rulebook.layout_typst.letterhead.header_top_pt * 1pt,
+    header_line_step: rulebook.layout_typst.letterhead.header_line_step_pt * 1pt,
+    suspense_dx: rulebook.layout_typst.letterhead.suspense_dx_pt * 1pt,
+    suspense_dy: rulebook.layout_typst.letterhead.suspense_dy_pt * 1pt,
+  ),
+  continuation: (
+    office_dx: rulebook.layout_typst.continuation.office_symbol_top_pt * 1pt,
+    office_dy: rulebook.layout_typst.continuation.office_symbol_top_pt * 1pt,
+    subject_dx: rulebook.layout_typst.continuation.office_symbol_top_pt * 1pt,
+    subject_dy: rulebook.layout_typst.continuation.subject_top_pt * 1pt,
+  ),
+  spacing: (
+    after_office_line: rulebook.layout_typst.heading.route_section_gap_after_office_line_pt * 1pt,
+    after_subject_line: rulebook.layout_typst.heading.subject_gap_after_route_block_pt * 1pt,
+    route_wrap: rulebook.layout_typst.route.wrap_spacing_pt * 1pt,
+    body_item: rulebook.layout_typst.body.item_gap_pt * 1pt,
+    body_paragraph: rulebook.layout_typst.body.paragraph_gap_pt * 1pt,
+    enclosure_line: rulebook.layout_typst.closing.enclosure_line_gap_pt * 1pt,
+    distribution_gap: rulebook.layout_typst.closing.distribution_gap_pt * 1pt,
+    cf_gap: rulebook.layout_typst.closing.cf_gap_pt * 1pt,
+    signature_gap_without_authority: rulebook.layout_typst.closing.signature_gap_without_authority_pt * 1pt,
+    signature_gap_with_authority: rulebook.layout_typst.closing.signature_gap_with_authority_pt * 1pt,
+  ),
+)

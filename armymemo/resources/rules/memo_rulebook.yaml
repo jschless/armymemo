@@ -1,0 +1,287 @@
+meta:
+  title: Army Memorandum Rulebook
+  scope: Core AR 25-50 memorandum and continuation-page layout
+  version: 0.1.0
+  extraction_status: partial
+  notes:
+    - This rulebook captures deterministic rules and layout constants for standard Army memorandums.
+    - AR 25-50 text is treated as normative. Figures and historical implementation notes are used to calibrate values where prose is not sufficiently explicit.
+    - Table layout remains out of scope for strict parity.
+
+sources:
+  - id: ar_25_50_2020_page_16
+    type: regulation_text
+    title: AR 25-50 Preparing and Managing Correspondence (10 October 2020), page 16 excerpt
+    url: https://fliphtml5.com/kbhsd/jrux/AR_25-50_Preparing_and_Managing_Correspondence_2020/16/
+    notes: Public excerpt covering memorandum format, heading, margins, and office symbol guidance.
+  - id: ar_25_50_2020_general_excerpt
+    type: regulation_text
+    title: AR 25-50 Preparing and Managing Correspondence (10 October 2020), chapter 2 public excerpt
+    url: https://fliphtml5.com/kbhsd/jrux/AR_25-50_Preparing_and_Managing_Correspondence_2020/
+    notes: Public excerpt covering spacing, numbering, authority line, and closing guidance.
+  - id: ar_25_50_continuation_excerpt
+    type: regulation_text
+    title: AR 25-50 multiple-page memorandum excerpt
+    url: https://www.armywriter.com/r25-50.pdf
+    notes: Public excerpt covering continuation-page office symbol, subject, body start, and page number rules.
+  - id: ar_25_50_home_wood_excerpt
+    type: regulation_text
+    title: AR 25-50 memorandum format excerpt
+    url: https://home.army.mil/wood/application/files/3015/5751/8343/AR_25_50_Army_Correspondence.pdf
+    notes: Public excerpt covering dates, margins, block style, and heading fields.
+  - id: armymemo_latex_class
+    type: historical_reference
+    title: Legacy Army memo LaTeX class from the pre-extraction repository
+    notes: Used during extraction to calibrate concrete list indentation, continuation header behavior, and closing block placement. It is not shipped in this standalone repo.
+
+layout_typst:
+  page_margin:
+    left: 72
+    right: 72
+    top: 132
+    bottom: 52
+  header_ascent: 0
+  footer_descent: 0
+  font_family: Arial
+  font_size_pt: 12
+  paragraph_leading_pt: 4
+  letterhead:
+    logo_dx_pt: 33
+    logo_dy_pt: 33
+    logo_height_pt: 72
+    header_dx_pt: 4
+    header_top_pt: 36
+    header_line_step_pt: 10
+    suspense_dx_pt: 72
+    suspense_dy_pt: 104
+  heading:
+    office_symbol_line_top_pt: 132
+    route_section_gap_after_office_line_pt: 36
+    subject_gap_after_route_block_pt: 36
+  continuation:
+    office_symbol_top_pt: 72
+    subject_top_pt: 88
+    page_number_bottom_center_pt: 72
+  route:
+    wrap_spacing_pt: 6
+    hanging_indent_pt: 18
+    default_paragraph_gap_pt: 20
+    stacked_recipient_gap_pt: 6
+  body:
+    item_gap_pt: 20
+    paragraph_gap_pt: 12
+    level_1_first_line_indent_pt: 0
+    level_2_first_line_indent_pt: 20
+    level_3_first_line_indent_pt: 38
+    level_4_first_line_indent_pt: 38
+  closing:
+    authority_gap_from_body_pt: 12
+    signature_gap_without_authority_pt: 58
+    signature_gap_with_authority_pt: 66
+    enclosure_line_gap_pt: 6
+    distribution_gap_pt: 12
+    cf_gap_pt: 22
+
+rules:
+  - id: memo.page.paper
+    category: page
+    summary: Use standard letter paper.
+    applies_when: always
+    outputs:
+      paper: us-letter
+    source_ids: [ar_25_50_home_wood_excerpt]
+    confidence: normative
+  - id: memo.page.margins
+    category: page
+    summary: Use 1-inch left, right, and bottom margins and ragged right text.
+    applies_when: always
+    outputs:
+      left_margin_pt: 72
+      right_margin_pt: 72
+      bottom_margin_pt: 72
+      justify_right_margin: false
+    source_ids: [ar_25_50_home_wood_excerpt]
+    confidence: normative
+  - id: memo.page.top_margin_letterhead
+    category: page
+    summary: The first-page top area is consumed by seal and letterhead content; body layout starts below that fixed region.
+    applies_when: first_page
+    outputs:
+      office_symbol_line_top_pt: 132
+    source_ids: [ar_25_50_2020_page_16, armymemo_latex_class]
+    confidence: figure_derived
+  - id: memo.heading.block_style
+    category: heading
+    summary: Memorandums use block style with heading, body, and closing.
+    applies_when: always
+    outputs:
+      block_style: true
+    source_ids: [ar_25_50_home_wood_excerpt]
+    confidence: normative
+  - id: memo.heading.office_symbol
+    category: heading
+    summary: Type the office symbol on the second line below the seal.
+    applies_when: first_page
+    outputs:
+      office_symbol_line_top_pt: 132
+    source_ids: [ar_25_50_2020_page_16]
+    confidence: normative
+  - id: memo.heading.date
+    category: heading
+    summary: Type or stamp the date flush with the right margin on the office-symbol line.
+    applies_when: todays_date_present
+    outputs:
+      date_alignment: right
+      date_line_matches_office_symbol_line: true
+    source_ids: [ar_25_50_home_wood_excerpt]
+    confidence: normative
+  - id: memo.heading.suspense
+    category: heading
+    summary: If used, place the suspense date two lines above the office-symbol line at the right margin.
+    applies_when: suspense_date_present
+    outputs:
+      suspense_top_pt: 104
+      suspense_alignment: right
+    source_ids: [ar_25_50_2020_page_16, armymemo_latex_class]
+    confidence: figure_derived
+  - id: memo.heading.route.single
+    category: route
+    summary: Single-address MEMORANDUM FOR stays on one line unless wrapping is forced by width.
+    applies_when: single_for_recipient
+    outputs:
+      route_label_inline: true
+    source_ids: [ar_25_50_2020_page_16]
+    confidence: normative
+  - id: memo.heading.route.multi
+    category: route
+    summary: Multi-recipient THRU/FOR blocks use hanging-indent recipient lines.
+    applies_when: multiple_recipients_or_thru
+    outputs:
+      hanging_indent_pt: 18
+      stacked_recipient_gap_pt: 6
+    source_ids: [ar_25_50_2020_page_16, armymemo_latex_class]
+    confidence: figure_derived
+  - id: memo.heading.subject
+    category: heading
+    summary: The subject line follows the address block and is flush left with the label SUBJECT.
+    applies_when: always
+    outputs:
+      subject_prefix: "SUBJECT:"
+      gap_after_route_block_pt: 36
+    source_ids: [ar_25_50_2020_page_16, armymemo_latex_class]
+    confidence: normative
+  - id: memo.body.spacing
+    category: body
+    summary: Single-space text with double spacing between paragraphs and subparagraphs.
+    applies_when: always
+    outputs:
+      line_spacing: single
+      paragraph_gap_pt: 12
+      item_gap_pt: 20
+    source_ids: [ar_25_50_2020_general_excerpt]
+    confidence: normative
+  - id: memo.body.numbering
+    category: body
+    summary: Do not number one-paragraph memorandums; otherwise number paragraphs and subparagraphs per figure hierarchy.
+    applies_when: body_present
+    outputs:
+      level_1_style: decimal_period
+      level_2_style: lower_alpha_period
+      level_3_style: decimal_parenthesized
+      level_4_style: lower_alpha_parenthesized
+    source_ids: [ar_25_50_2020_general_excerpt, armymemo_latex_class]
+    confidence: normative
+  - id: memo.body.indent.levels
+    category: body
+    summary: Paragraph subdivisions use fixed first-line indents by level.
+    applies_when: numbered_body
+    outputs:
+      level_1_first_line_indent_pt: 0
+      level_2_first_line_indent_pt: 20
+      level_3_first_line_indent_pt: 38
+      level_4_first_line_indent_pt: 38
+    source_ids: [ar_25_50_2020_general_excerpt, armymemo_latex_class]
+    confidence: figure_derived
+  - id: memo.closing.authority
+    category: closing
+    summary: Authority line is uppercase, flush left, on the second line below the last line of text.
+    applies_when: authority_present
+    outputs:
+      authority_uppercase: true
+      authority_gap_from_body_pt: 12
+    source_ids: [ar_25_50_2020_general_excerpt]
+    confidence: normative
+  - id: memo.closing.signature
+    category: closing
+    summary: Signature block begins at center on the fifth line below the authority line, or fifth line below text if no authority line exists.
+    applies_when: always
+    outputs:
+      signature_gap_with_authority_pt: 66
+      signature_gap_without_authority_pt: 58
+      signature_alignment: center_start
+    source_ids: [ar_25_50_2020_general_excerpt, armymemo_latex_class]
+    confidence: normative
+  - id: memo.closing.enclosures
+    category: closing
+    summary: Enclosures are listed at the left margin on the same vertical band as the signature block.
+    applies_when: enclosures_present
+    outputs:
+      enclosure_alignment: left
+      enclosure_line_gap_pt: 6
+    source_ids: [armymemo_latex_class]
+    confidence: implementation_derived
+  - id: memo.closing.distribution
+    category: closing
+    summary: Distribution listing begins below the lower of the signature block and enclosure listing.
+    applies_when: distros_present
+    outputs:
+      title: "DISTRIBUTION:"
+      gap_before_distribution_pt: 12
+    source_ids: [armymemo_latex_class]
+    confidence: implementation_derived
+  - id: memo.closing.cf
+    category: closing
+    summary: CF line begins below the lower of the signature block, enclosure listing, or distribution listing.
+    applies_when: cfs_present
+    outputs:
+      title: "CF:"
+      gap_before_cf_pt: 22
+    source_ids: [armymemo_latex_class]
+    confidence: implementation_derived
+  - id: memo.continuation.heading
+    category: continuation
+    summary: Continuation pages repeat the office symbol at 1 inch from the top and subject on the next line.
+    applies_when: page_number > 1
+    outputs:
+      office_symbol_top_pt: 72
+      subject_top_pt: 88
+    source_ids: [ar_25_50_continuation_excerpt]
+    confidence: normative
+  - id: memo.continuation.body_start
+    category: continuation
+    summary: Continuation-page body text starts on the third line below the subject.
+    applies_when: page_number > 1
+    outputs:
+      continuation_body_start_top_pt: 132
+    source_ids: [ar_25_50_continuation_excerpt]
+    confidence: normative
+  - id: memo.continuation.pagination
+    category: continuation
+    summary: Avoid bad page breaks; keep enough lines on each page and do not hyphenate across pages.
+    applies_when: page_number > 1
+    outputs:
+      minimum_lines_of_split_paragraph_per_page: 2
+      minimum_words_of_split_sentence_per_page: 2
+      hyphenate_across_pages: false
+      minimum_body_lines_before_signature_block_on_continuation_page: 2
+    source_ids: [ar_25_50_continuation_excerpt]
+    confidence: normative
+  - id: memo.continuation.page_number
+    category: continuation
+    summary: Center the page number approximately 1 inch from the bottom of the page.
+    applies_when: page_number > 1
+    outputs:
+      page_number_alignment: center
+      page_number_bottom_pt: 72
+    source_ids: [ar_25_50_continuation_excerpt]
+    confidence: normative
