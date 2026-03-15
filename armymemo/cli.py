@@ -11,6 +11,7 @@ from .comparison import compare_pdfs
 from .compiler import TypstCompiler
 from .corpus import generate_corpus
 from .parser import parse_file
+from .review_pack import generate_review_pack, list_review_packs
 from .review import review_document
 from .renderers.typst import render_typst_source
 
@@ -38,6 +39,18 @@ def build_parser() -> argparse.ArgumentParser:
     corpus_parser.add_argument("--count", type=int, default=24)
     corpus_parser.add_argument("--format", choices=["memodoc", "amd"], default="memodoc")
 
+    review_pack_parser = subparsers.add_parser(
+        "review-pack",
+        help="Generate a curated PDF bundle for visual review",
+    )
+    review_pack_parser.add_argument("output_dir")
+    review_pack_parser.add_argument(
+        "--pack",
+        choices=list_review_packs(),
+        default="representative_5",
+        help="Named review pack to generate",
+    )
+
     review_parser = subparsers.add_parser("review", help="Review memo structure and rendered PDF cues")
     review_parser.add_argument("input", help="Path to AMD or MemoDoc input")
     review_parser.add_argument("--pdf", help="Existing PDF to review")
@@ -64,6 +77,8 @@ def main(argv: list[str] | None = None) -> int:
         return _compare(args)
     if args.command == "corpus":
         return _corpus(args)
+    if args.command == "review-pack":
+        return _review_pack(args)
     if args.command == "review":
         return _review(args)
     if args.command == "benchmark":
@@ -105,6 +120,12 @@ def _corpus(args: argparse.Namespace) -> int:
         content = case.document.to_memodoc() if args.format == "memodoc" else case.document.to_amd()
         path.write_text(content, encoding="utf-8")
     print(f"Wrote {args.count} memo inputs to {output_dir}")
+    return 0
+
+
+def _review_pack(args: argparse.Namespace) -> int:
+    generated = generate_review_pack(args.output_dir, pack_name=args.pack)
+    print(f"Wrote {len(generated)} review PDFs and README.md to {args.output_dir}")
     return 0
 
 

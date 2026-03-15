@@ -49,6 +49,12 @@ Benchmark Typst rendering:
 armymemo benchmark resources/examples/basic_mfr.Amd
 ```
 
+Generate the representative visual review pack:
+
+```bash
+armymemo review-pack artifacts/review-pack-01
+```
+
 ## Tests
 
 ```bash

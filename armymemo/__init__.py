@@ -13,6 +13,7 @@ from .compiler import TypstBinaryManager, TypstCompiler
 from .corpus import CorpusCase, generate_corpus
 from .document import BodyItem, MemoDocument, Recipient, TableBlock
 from .parser import parse_file, parse_text
+from .review_pack import ReviewPackItem, generate_review_pack, list_review_packs
 from .rules import load_rule_inventory, load_rulebook, load_typst_layout_rules
 from .review import (
     ReviewFeatures,
@@ -38,6 +39,7 @@ __all__ = [
     "Recipient",
     "ReviewFeatures",
     "ReviewFinding",
+    "ReviewPackItem",
     "ReviewReport",
     "TableBlock",
     "TypstBinaryManager",
@@ -47,7 +49,9 @@ __all__ = [
     "compare_pdfs",
     "default_review_rules",
     "extract_review_features",
+    "generate_review_pack",
     "generate_corpus",
+    "list_review_packs",
     "load_rule_inventory",
     "load_rulebook",
     "load_typst_layout_rules",
