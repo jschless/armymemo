@@ -4,6 +4,7 @@ from armymemo.renderers.typst import render_typst_pdf
 from armymemo.review import (
     ReviewFinding,
     ReviewReport,
+    default_document_review_rules,
     review_document,
     review_rendered_document,
 )
@@ -30,6 +31,54 @@ def test_review_document_flags_missing_subject():
     assert findings["document.subject.present"].name == "Subject Present"
     assert findings["document.subject.present"].ar_reference == "AR 25-50, para 2-4"
     assert findings["document.subject.present"].suggested_fix is not None
+
+
+def test_document_only_review_rules_skip_rendered_checks():
+    document = MemoDocument(
+        unit_name="Test Unit",
+        unit_street_address="123 Example Road",
+        unit_city_state_zip="Fort Example, NC 28310",
+        office_symbol="S1-123",
+        subject="Testing Live Review",
+        body=[BodyItem(["Body paragraph."])],
+        author_name="Jordan A. Carter",
+        author_rank="CPT",
+        author_branch="EN",
+        todays_date="15 January 2025",
+    )
+
+    report = review_document(document, rules=default_document_review_rules())
+    rule_ids = {finding.rule_id for finding in report.findings}
+
+    assert "memo.heading.letterhead" not in rule_ids
+    assert "document.date.format" in rule_ids
+    assert report.skipped_rules == 0
+
+
+def test_review_document_flags_missing_header_fields_and_style_issues():
+    document = MemoDocument(
+        unit_name="",
+        unit_street_address="",
+        unit_city_state_zip="",
+        office_symbol="bad symbol",
+        subject="lowercase subject.",
+        body=[BodyItem(["Body paragraph."])],
+        author_name="Jordan A. Carter",
+        author_rank="captain",
+        author_branch="engineers",
+        todays_date="01/15/2025",
+    )
+
+    report = review_document(document, rules=default_document_review_rules())
+    findings = {finding.rule_id: finding for finding in report.findings}
+
+    assert findings["document.organization.complete"].status == "fail"
+    assert findings["document.office_symbol.format"].status == "fail"
+    assert findings["document.date.format"].status == "fail"
+    assert findings["document.subject.style.capitalization"].status == "fail"
+    assert findings["document.subject.style.terminal_punctuation"].status == "fail"
+    assert findings["document.rank.known"].status == "fail"
+    assert findings["document.branch.known"].status == "fail"
 
 
 def test_review_report_fails_on_warning_findings():

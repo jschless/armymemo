@@ -16,12 +16,118 @@ POSITION_TOLERANCE_PT = 4.0
 RIGHT_MARGIN_TOLERANCE_PT = 6.0
 CENTER_TOLERANCE_PT = 16.0
 BOTTOM_REGION_PT = 90.0
+DATE_PATTERN = re.compile(
+    r"^\d{1,2}\s+(January|February|March|April|May|June|July|"
+    r"August|September|October|November|December)\s+\d{4}$",
+    re.IGNORECASE,
+)
+OFFICE_SYMBOL_PATTERN = re.compile(r"^[A-Z]{2,5}(-[A-Z0-9]{1,4})*$", re.IGNORECASE)
+VALID_RANKS = {
+    "PVT",
+    "PV2",
+    "PFC",
+    "SPC",
+    "CPL",
+    "SGT",
+    "SSG",
+    "SFC",
+    "MSG",
+    "1SG",
+    "SGM",
+    "CSM",
+    "SMA",
+    "WO1",
+    "CW2",
+    "CW3",
+    "CW4",
+    "CW5",
+    "2LT",
+    "1LT",
+    "CPT",
+    "MAJ",
+    "LTC",
+    "COL",
+    "BG",
+    "MG",
+    "LTG",
+    "GEN",
+    "GA",
+    "MR",
+    "MRS",
+    "MS",
+    "DR",
+}
+VALID_BRANCHES = {
+    "AD",
+    "AG",
+    "AR",
+    "AV",
+    "CA",
+    "CE",
+    "CM",
+    "CY",
+    "EN",
+    "FA",
+    "FI",
+    "IN",
+    "JA",
+    "MC",
+    "MI",
+    "MP",
+    "MS",
+    "OD",
+    "QM",
+    "SC",
+    "SF",
+    "TC",
+    "USA",
+}
 
 REVIEW_RULE_METADATA: dict[str, dict[str, str]] = {
+    "document.organization.complete": {
+        "name": "Organization Block Complete",
+        "ar_reference": "AR 25-50, para 2-4",
+        "suggested_fix": "Provide the organization name, street address, and city/state/ZIP in the memo header.",
+    },
+    "document.office_symbol.present": {
+        "name": "Office Symbol Present",
+        "ar_reference": "AR 25-50, para 2-4",
+        "suggested_fix": "Add the office symbol line to the memo header.",
+    },
+    "document.office_symbol.format": {
+        "name": "Office Symbol Format",
+        "ar_reference": "AR 25-50, para 2-4",
+        "suggested_fix": "Use a standard office symbol format such as ATZB-CD-E.",
+    },
+    "document.date.present": {
+        "name": "Date Present",
+        "ar_reference": "AR 25-50, para 2-4",
+        "suggested_fix": "Add the memo date in DD Month YYYY format.",
+    },
+    "document.date.format": {
+        "name": "Date Format",
+        "ar_reference": "AR 25-50, para 2-4",
+        "suggested_fix": "Use DD Month YYYY format, for example 15 January 2025.",
+    },
     "document.subject.present": {
         "name": "Subject Present",
         "ar_reference": "AR 25-50, para 2-4",
         "suggested_fix": "Add a SUBJECT line before the memo body.",
+    },
+    "document.subject.style.capitalization": {
+        "name": "Subject Capitalization",
+        "ar_reference": "AR 25-50, para 2-4",
+        "suggested_fix": "Start the subject line with a capital letter.",
+    },
+    "document.subject.style.terminal_punctuation": {
+        "name": "Subject Terminal Punctuation",
+        "ar_reference": "AR 25-50, para 2-4",
+        "suggested_fix": "Remove the trailing period from the subject line.",
+    },
+    "document.subject.style.length": {
+        "name": "Subject Length",
+        "ar_reference": "AR 25-50, para 2-4",
+        "suggested_fix": "Keep the subject concise enough to remain readable in the header.",
     },
     "document.body.present": {
         "name": "Body Present",
@@ -37,6 +143,16 @@ REVIEW_RULE_METADATA: dict[str, dict[str, str]] = {
         "name": "Routing Present",
         "ar_reference": "AR 25-50, para 2-4",
         "suggested_fix": "Provide the required FOR or THRU routing block for non-MFR memos.",
+    },
+    "document.rank.known": {
+        "name": "Known Rank Abbreviation",
+        "ar_reference": "AR 25-50, para 2-5",
+        "suggested_fix": "Use a recognized Army rank abbreviation such as CPT or SGT.",
+    },
+    "document.branch.known": {
+        "name": "Known Branch Abbreviation",
+        "ar_reference": "AR 25-50, para 2-5",
+        "suggested_fix": "Use a recognized branch abbreviation such as EN, IN, or MI.",
     },
     "memo.heading.letterhead": {
         "name": "Letterhead Geometry",
@@ -253,12 +369,27 @@ def review_rendered_document(document: MemoDocument) -> ReviewReport:
         return review_document(document, pdf_source=output_path)
 
 
-def default_review_rules() -> list[ReviewRule]:
+def default_document_review_rules() -> list[ReviewRule]:
     return [
+        _organization_complete_rule,
+        _office_symbol_present_rule,
+        _office_symbol_format_rule,
+        _date_present_rule,
+        _date_format_rule,
         _subject_present_rule,
+        _subject_capitalization_rule,
+        _subject_terminal_punctuation_rule,
+        _subject_length_rule,
         _body_present_rule,
         _signature_complete_rule,
         _routing_rule,
+        _rank_known_rule,
+        _branch_known_rule,
+    ]
+
+
+def default_rendered_review_rules() -> list[ReviewRule]:
+    return [
         _letterhead_geometry_rule,
         _office_symbol_position_rule,
         _date_alignment_rule,
@@ -272,6 +403,10 @@ def default_review_rules() -> list[ReviewRule]:
         _continuation_heading_rule,
         _continuation_page_number_rule,
     ]
+
+
+def default_review_rules() -> list[ReviewRule]:
+    return [*default_document_review_rules(), *default_rendered_review_rules()]
 
 
 def _pages_from_layout(layout: ExtractedLayout) -> list[RenderedPageReview]:
@@ -330,6 +465,190 @@ def _subject_present_rule(features: ReviewFeatures) -> ReviewFinding:
         severity="error",
         status="fail",
         message="Subject line is missing.",
+    )
+
+
+def _organization_complete_rule(features: ReviewFeatures) -> ReviewFinding:
+    missing = [
+        label
+        for label, value in [
+            ("organization name", features.document.unit_name),
+            ("street address", features.document.unit_street_address),
+            ("city/state/ZIP", features.document.unit_city_state_zip),
+        ]
+        if not str(value or "").strip()
+    ]
+    if not missing:
+        return ReviewFinding(
+            rule_id="document.organization.complete",
+            severity="error",
+            status="pass",
+            message="Organization block is complete.",
+        )
+    return ReviewFinding(
+        rule_id="document.organization.complete",
+        severity="error",
+        status="fail",
+        message=f"Organization block is missing: {', '.join(missing)}.",
+        evidence={"missing_fields": missing},
+    )
+
+
+def _office_symbol_present_rule(features: ReviewFeatures) -> ReviewFinding:
+    if features.document.office_symbol.strip():
+        return ReviewFinding(
+            rule_id="document.office_symbol.present",
+            severity="error",
+            status="pass",
+            message="Office symbol is present.",
+        )
+    return ReviewFinding(
+        rule_id="document.office_symbol.present",
+        severity="error",
+        status="fail",
+        message="Office symbol is missing.",
+    )
+
+
+def _office_symbol_format_rule(features: ReviewFeatures) -> ReviewFinding:
+    office_symbol = features.document.office_symbol.strip()
+    if not office_symbol:
+        return ReviewFinding(
+            rule_id="document.office_symbol.format",
+            severity="info",
+            status="skip",
+            message="Office symbol format check skipped because the office symbol is missing.",
+        )
+    if OFFICE_SYMBOL_PATTERN.match(office_symbol):
+        return ReviewFinding(
+            rule_id="document.office_symbol.format",
+            severity="warning",
+            status="pass",
+            message="Office symbol matches the expected format.",
+        )
+    return ReviewFinding(
+        rule_id="document.office_symbol.format",
+        severity="warning",
+        status="fail",
+        message=f"Office symbol '{office_symbol}' does not match the expected format.",
+        evidence={"office_symbol": office_symbol},
+    )
+
+
+def _date_present_rule(features: ReviewFeatures) -> ReviewFinding:
+    if str(features.document.todays_date or "").strip():
+        return ReviewFinding(
+            rule_id="document.date.present",
+            severity="error",
+            status="pass",
+            message="Date is present.",
+        )
+    return ReviewFinding(
+        rule_id="document.date.present",
+        severity="error",
+        status="fail",
+        message="Date is missing.",
+    )
+
+
+def _date_format_rule(features: ReviewFeatures) -> ReviewFinding:
+    date_value = str(features.document.todays_date or "").strip()
+    if not date_value:
+        return ReviewFinding(
+            rule_id="document.date.format",
+            severity="info",
+            status="skip",
+            message="Date format check skipped because the date is missing.",
+        )
+    if DATE_PATTERN.match(date_value):
+        return ReviewFinding(
+            rule_id="document.date.format",
+            severity="error",
+            status="pass",
+            message="Date matches DD Month YYYY format.",
+        )
+    return ReviewFinding(
+        rule_id="document.date.format",
+        severity="error",
+        status="fail",
+        message=f"Date '{date_value}' must use DD Month YYYY format.",
+        evidence={"date": date_value},
+    )
+
+
+def _subject_capitalization_rule(features: ReviewFeatures) -> ReviewFinding:
+    subject = features.document.subject.strip()
+    if not subject:
+        return ReviewFinding(
+            rule_id="document.subject.style.capitalization",
+            severity="info",
+            status="skip",
+            message="Subject capitalization check skipped because the subject is missing.",
+        )
+    if subject[0].isupper():
+        return ReviewFinding(
+            rule_id="document.subject.style.capitalization",
+            severity="warning",
+            status="pass",
+            message="Subject starts with a capital letter.",
+        )
+    return ReviewFinding(
+        rule_id="document.subject.style.capitalization",
+        severity="warning",
+        status="fail",
+        message="Subject should start with a capital letter.",
+        evidence={"subject": subject},
+    )
+
+
+def _subject_terminal_punctuation_rule(features: ReviewFeatures) -> ReviewFinding:
+    subject = features.document.subject.strip()
+    if not subject:
+        return ReviewFinding(
+            rule_id="document.subject.style.terminal_punctuation",
+            severity="info",
+            status="skip",
+            message="Subject punctuation check skipped because the subject is missing.",
+        )
+    if not subject.endswith("."):
+        return ReviewFinding(
+            rule_id="document.subject.style.terminal_punctuation",
+            severity="warning",
+            status="pass",
+            message="Subject does not end with terminal punctuation.",
+        )
+    return ReviewFinding(
+        rule_id="document.subject.style.terminal_punctuation",
+        severity="warning",
+        status="fail",
+        message="Subject should not end with a period.",
+        evidence={"subject": subject},
+    )
+
+
+def _subject_length_rule(features: ReviewFeatures) -> ReviewFinding:
+    subject = features.document.subject.strip()
+    if not subject:
+        return ReviewFinding(
+            rule_id="document.subject.style.length",
+            severity="info",
+            status="skip",
+            message="Subject length check skipped because the subject is missing.",
+        )
+    if len(subject) <= 150:
+        return ReviewFinding(
+            rule_id="document.subject.style.length",
+            severity="warning",
+            status="pass",
+            message="Subject length is within the recommended range.",
+            evidence={"length": len(subject)},
+        )
+    return ReviewFinding(
+        rule_id="document.subject.style.length",
+        severity="warning",
+        status="fail",
+        message=f"Subject is {len(subject)} characters long; shorten it for readability.",
+        evidence={"length": len(subject)},
     )
 
 
@@ -397,6 +716,58 @@ def _routing_rule(features: ReviewFeatures) -> ReviewFinding:
         status="fail",
         message="Routing information is missing for a non-MFR memo.",
         evidence={"memo_type": document.memo_type},
+    )
+
+
+def _rank_known_rule(features: ReviewFeatures) -> ReviewFinding:
+    rank = features.document.author_rank.strip().upper()
+    if not rank:
+        return ReviewFinding(
+            rule_id="document.rank.known",
+            severity="info",
+            status="skip",
+            message="Rank recognition check skipped because the rank is missing.",
+        )
+    if rank in VALID_RANKS:
+        return ReviewFinding(
+            rule_id="document.rank.known",
+            severity="warning",
+            status="pass",
+            message="Rank abbreviation is recognized.",
+            evidence={"rank": rank},
+        )
+    return ReviewFinding(
+        rule_id="document.rank.known",
+        severity="warning",
+        status="fail",
+        message=f"Rank '{rank}' is not a recognized Army abbreviation.",
+        evidence={"rank": rank},
+    )
+
+
+def _branch_known_rule(features: ReviewFeatures) -> ReviewFinding:
+    branch = features.document.author_branch.strip().upper()
+    if not branch:
+        return ReviewFinding(
+            rule_id="document.branch.known",
+            severity="info",
+            status="skip",
+            message="Branch recognition check skipped because the branch is missing.",
+        )
+    if branch in VALID_BRANCHES:
+        return ReviewFinding(
+            rule_id="document.branch.known",
+            severity="warning",
+            status="pass",
+            message="Branch abbreviation is recognized.",
+            evidence={"branch": branch},
+        )
+    return ReviewFinding(
+        rule_id="document.branch.known",
+        severity="warning",
+        status="fail",
+        message=f"Branch '{branch}' is not a recognized Army abbreviation.",
+        evidence={"branch": branch},
     )
 
 
